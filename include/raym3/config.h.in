@@ -1,0 +1,4 @@
+#pragma once
+
+#define RAYM3_RESOURCE_DIR "@RAYM3_RESOURCE_DIR@"
+

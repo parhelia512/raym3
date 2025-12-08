@@ -1,0 +1,62 @@
+# Build directories
+build/
+CMakeFiles/
+_build/
+out/
+
+# CMake generated files
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+!include/raym3/config.h.in
+
+# Compiled libraries
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+
+# Object files
+*.o
+*.obj
+*.lo
+
+# Dependency files
+*.d
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Generated headers
+include/raym3/config.h
+src/EmbeddedResources.h
+
+# Temporary files
+*.tmp
+*.bak
+*.log
+
+# Test executables
+*_test
+*_example
+
+# Coverage reports
+*.gcov
+*.gcda
+*.gcno
+coverage/
+
+# Documentation builds
+docs/_build/
+docs/html/
+
+# CMake FetchContent dependencies
+_deps/

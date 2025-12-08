@@ -1,0 +1,279 @@
+#include "raym3/raym3.h"
+#include <cstdio>
+#include <raylib.h>
+
+int main() {
+  InitWindow(1200, 1200, "raym3 Example");
+  SetTargetFPS(60);
+
+  raym3::Initialize();
+  raym3::SetTheme(false);
+
+  char textBuffer[256] = "";
+  bool checkboxChecked = false;
+  bool switchChecked = false;
+  float sliderValue = 50.0f;
+  int selectedMenuItem = 0;
+  bool showDialog = false;
+
+  while (!WindowShouldClose()) {
+    BeginDrawing();
+
+    raym3::ColorScheme &scheme = raym3::Theme::GetColorScheme();
+    ClearBackground(scheme.surface);
+
+    raym3::BeginFrame();
+
+    float y = 20.0f;
+    float spacing = 60.0f;
+
+    if (raym3::Button("Filled Button", {20, y, 150, 40},
+                      raym3::ButtonVariant::Filled)) {
+      showDialog = true;
+    }
+    y += spacing;
+
+    raym3::Button("Text Button", {20, y, 150, 40}, raym3::ButtonVariant::Text);
+    y += spacing;
+
+    raym3::Button("Outlined Button", {20, y, 150, 40},
+                  raym3::ButtonVariant::Outlined);
+    y += spacing;
+
+    raym3::TextField(textBuffer, sizeof(textBuffer), {20, y, 250, 56},
+                     "Text Field");
+    y += spacing + 20;
+
+    static char filledBuffer[256] = "";
+    static char outlinedBuffer[256] = "";
+    static char filledWithIconsBuffer[256] = "";
+    static char outlinedWithIconsBuffer[256] = "";
+    static bool showPassword = false;
+
+    raym3::TextFieldOptions filledOpts;
+    filledOpts.variant = raym3::TextFieldVariant::Filled;
+    filledOpts.placeholder = "Filled text field";
+    raym3::TextField(filledBuffer, sizeof(filledBuffer), {20, y, 300, 56},
+                     "Filled", filledOpts);
+    y += spacing + 20;
+
+    raym3::TextFieldOptions outlinedOpts;
+    outlinedOpts.variant = raym3::TextFieldVariant::Outlined;
+    outlinedOpts.placeholder = "Outlined text field";
+    raym3::TextField(outlinedBuffer, sizeof(outlinedBuffer), {20, y, 300, 56},
+                     "Outlined", outlinedOpts);
+    y += spacing + 20;
+
+    static bool clearClicked = false;
+    raym3::TextFieldOptions filledIconsOpts;
+    filledIconsOpts.variant = raym3::TextFieldVariant::Filled;
+    filledIconsOpts.leadingIcon = "search";
+    filledIconsOpts.trailingIcon = "clear";
+    filledIconsOpts.placeholder = "Search";
+    filledIconsOpts.onTrailingIconClick = []() {
+      clearClicked = true;
+      printf("Clear icon clicked!\n");
+      return true;
+    };
+    raym3::TextField(filledWithIconsBuffer, sizeof(filledWithIconsBuffer),
+                     {20, y, 300, 56}, "Filled with Icons", filledIconsOpts);
+    if (clearClicked) {
+      filledWithIconsBuffer[0] = '\0';
+      clearClicked = false;
+    }
+    y += spacing + 20;
+
+    raym3::TextFieldOptions outlinedIconsOpts;
+    outlinedIconsOpts.variant = raym3::TextFieldVariant::Outlined;
+    outlinedIconsOpts.leadingIcon = "person";
+    outlinedIconsOpts.trailingIcon =
+        showPassword ? "visibility" : "visibility_off";
+    outlinedIconsOpts.placeholder = "Password";
+    outlinedIconsOpts.passwordMode = !showPassword;
+    outlinedIconsOpts.onTrailingIconClick = []() {
+      showPassword = !showPassword;
+      printf("Password visibility toggled: %s\n",
+             showPassword ? "visible" : "hidden");
+      return true;
+    };
+    raym3::TextField(outlinedWithIconsBuffer, sizeof(outlinedWithIconsBuffer),
+                     {20, y, 300, 56}, "Outlined with Icons",
+                     outlinedIconsOpts);
+    y += spacing + 20;
+
+    raym3::Checkbox("Checkbox", {20, y, 200, 24}, &checkboxChecked);
+    y += spacing;
+
+    raym3::Switch("Switch", {20, y, 200, 24}, &switchChecked);
+    y += spacing;
+
+    sliderValue =
+        raym3::Slider({20, y, 250, 40}, sliderValue, 0.0f, 100.0f, "Slider");
+    y += spacing + 20;
+
+    raym3::Card({20, y, 350, 160}, raym3::CardVariant::Elevated);
+
+    raym3::CircularProgressIndicator({40, y + 50, 48, 48}, 0.0f, true,
+                                     Color{0, 0, 0, 0});
+    raym3::LinearProgressIndicator({100, y + 70, 200, 4}, 0.75f, false,
+                                   Color{0, 0, 0, 0});
+    raym3::LinearProgressIndicator({100, y + 90, 200, 4}, 0.0f, true,
+                                   Color{0, 0, 0, 0});
+
+    raym3::Icon("home", {40, y + 110, 24, 24}, raym3::IconVariation::Filled,
+                scheme.primary);
+    raym3::Icon("settings", {80, y + 110, 24, 24},
+                raym3::IconVariation::Outlined, scheme.primary);
+
+    if (raym3::IconButton("favorite", {120, y + 100, 48, 48},
+                          raym3::ButtonVariant::Text,
+                          raym3::IconVariation::Filled)) {
+      printf("Heart clicked!\n");
+    }
+    raym3::IconButton("add", {180, y + 100, 48, 48},
+                      raym3::ButtonVariant::Filled,
+                      raym3::IconVariation::Filled);
+    raym3::IconButton("edit", {240, y + 100, 48, 48},
+                      raym3::ButtonVariant::Tonal,
+                      raym3::IconVariation::Filled);
+    raym3::IconButton("delete", {300, y + 100, 48, 48},
+                      raym3::ButtonVariant::Outlined,
+                      raym3::IconVariation::Filled);
+
+    raym3::Text("Roboto Regular", {415, y + 50, 100, 24}, 16, scheme.onSurface,
+                raym3::FontWeight::Regular);
+    raym3::Text("Roboto Medium", {415, y + 75, 100, 24}, 16, scheme.onSurface,
+                raym3::FontWeight::Medium);
+    raym3::Text("Roboto Bold", {415, y + 100, 100, 24}, 16, scheme.onSurface,
+                raym3::FontWeight::Bold);
+
+    y += 170;
+
+    static int selectedOption = 0;
+    if (raym3::RadioButton("Option 1", {40, y, 120, 48}, selectedOption == 0))
+      selectedOption = 0;
+    if (raym3::RadioButton("Option 2", {160, y, 120, 48}, selectedOption == 1))
+      selectedOption = 1;
+    if (raym3::RadioButton("Option 3", {280, y, 120, 48}, selectedOption == 2))
+      selectedOption = 2;
+
+    y += 60;
+
+    static int selectedSegment = 0;
+    static raym3::SegmentedButtonItem segmentItems[] = {
+        {"Day", "wb_sunny"},
+        {"Week", "calendar_view_week"},
+        {"Month", "calendar_month"},
+        {"Year", "calendar_today"}};
+
+    raym3::SegmentedButton({40, y, 320, 40}, segmentItems, 4, &selectedSegment);
+
+    y += 30;
+    raym3::Divider({20, y, 360, 20});
+    y += 30;
+
+    static raym3::MenuItem menuItems[] = {
+        {.text = "Cut", .leadingIcon = "content_cut", .trailingText = "Cmd+X"},
+        {.text = "Copy",
+         .leadingIcon = "content_copy",
+         .trailingText = "Cmd+C"},
+        {.text = "Paste",
+         .leadingIcon = "content_paste",
+         .trailingText = "Cmd+V"},
+        {.isDivider = true},
+        {.text = "Settings", .leadingIcon = "settings"},
+        {.text = "Help", .leadingIcon = "help", .disabled = true}};
+    raym3::Menu({400, 20, 240, 300}, menuItems, 6, &selectedMenuItem);
+
+    static raym3::MenuItem gapMenuItems[] = {
+        {.text = "Group A Item 1"}, {.text = "Group A Item 2"}, {.isGap = true},
+        {.text = "Group B Item 1"}, {.text = "Group B Item 2"},
+    };
+    static int selectedGapMenuItem = -1;
+    raym3::Menu({660, 20, 200, 250}, gapMenuItems, 5, &selectedGapMenuItem);
+
+    static raym3::View3D view3D;
+    static Camera3D camera = {{5.0f, 5.0f, 5.0f},
+                              {0.0f, 0.0f, 0.0f},
+                              {0.0f, 1.0f, 0.0f},
+                              45.0f,
+                              CAMERA_PERSPECTIVE};
+
+    float time = (float)GetTime();
+    camera.position.x = sinf(time) * 5.0f;
+    camera.position.z = cosf(time) * 5.0f;
+
+    view3D.Render({400, 400, 300, 200}, []() {
+      BeginMode3D(camera);
+      ClearBackground(RAYWHITE);
+      DrawGrid(10, 1.0f);
+      DrawCube({0, 0, 0}, 2.0f, 2.0f, 2.0f, RED);
+      DrawCubeWires({0, 0, 0}, 2.0f, 2.0f, 2.0f, MAROON);
+      EndMode3D();
+    });
+
+    // List Component Demo
+    static raym3::ListItem diningChildren[] = {{.text = "Breakfast & brunch"},
+                                               {.text = "New American"},
+                                               {.text = "Sushi bars"},
+                                               {.text = "Filipino food"}};
+
+    static raym3::ListItem rootItems[] = {
+        {.text = "Attractions", .leadingIcon = "movie"},
+        {.text = "Dining",
+         .leadingIcon = "restaurant",
+         .children = diningChildren,
+         .childCount = 4,
+         .expanded = true},
+        {.text = "Education", .leadingIcon = "school"},
+        {.text = "Health", .leadingIcon = "favorite"},
+        {.text = "Family", .leadingIcon = "group"},
+        {.text = "Office",
+         .leadingIcon = "content_cut"}, // Using content_cut as placeholder for
+                                        // scissors/office
+        {.text = "Promotions", .leadingIcon = "label"}};
+
+    float listHeight = 0;
+    // Render list on the right side of the split menu
+    raym3::List({880, 20, 300, 600}, rootItems, 7, &listHeight);
+
+    // Deep Nesting Example
+    static raym3::ListItem level3[] = {{.text = "Level 3 Item 1"},
+                                       {.text = "Level 3 Item 2"}};
+
+    static raym3::ListItem level2[] = {{.text = "Level 2 Item 1",
+                                        .children = level3,
+                                        .childCount = 2,
+                                        .expanded = true},
+                                       {.text = "Level 2 Item 2",
+                                        .backgroundColor = PURPLE,
+                                        .textColor = WHITE}};
+
+    static raym3::ListItem level1[] = {{.text = "Root Item",
+                                        .children = level2,
+                                        .childCount = 2,
+                                        .expanded = true},
+                                       {.text = "Custom Color Item",
+                                        .textColor = RED,
+                                        .iconColor = BLUE,
+                                        .leadingIcon = "star"}};
+
+    float deepListHeight = 0;
+    raym3::List({880, 20 + listHeight + 20, 300, 300}, level1, 2,
+                &deepListHeight);
+
+    if (showDialog) {
+      if (raym3::Dialog({0, 0, 800, 600}, "Dialog",
+                        "This is a Material Design 3 dialog!", "Cancel;OK")) {
+        showDialog = false;
+      }
+    }
+
+    raym3::EndFrame();
+    EndDrawing();
+  }
+
+  raym3::Shutdown();
+  CloseWindow();
+  return 0;
+}
