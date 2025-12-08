@@ -6,7 +6,7 @@ raym3 is a Material Design 3 inspired immediate-mode GUI library built on raylib
 
 ## Demo
 
-<video src="media/demo.mov" controls width="100%"></video>
+![raym3 demo](media/demo.gif)
 
 ## Features
 
