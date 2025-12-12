@@ -10,7 +10,8 @@ public:
   static void Render(const char *text, Rectangle bounds, float fontSize,
                      Color color = BLANK,
                      FontWeight weight = FontWeight::Regular,
-                     TextAlignment alignment = TextAlignment::Left);
+                     TextAlignment alignment = TextAlignment::Left,
+                     int selectionStart = -1, int selectionEnd = -1);
 };
 
 } // namespace raym3

@@ -3,7 +3,8 @@
 #include "raym3/components/Divider.h"         // Include for enum definition
 #include "raym3/components/List.h"            // Include for List component
 #include "raym3/components/SegmentedButton.h" // Include for struct definition
-#include "raym3/components/View3D.h"          // Include for View3D class
+#include "raym3/components/Snackbar.h"
+#include "raym3/components/View3D.h" // Include for View3D class
 #include "raym3/styles/Theme.h"
 #include "raym3/types.h"
 #include <raylib.h>
@@ -63,8 +64,7 @@ void Text(const char *text, Rectangle bounds, float fontSize, Color color,
           TextAlignment alignment = TextAlignment::Left);
 
 void Card(Rectangle bounds, CardVariant variant = CardVariant::Elevated);
-bool Dialog(Rectangle bounds, const char *title, const char *message,
-            const char *buttons);
+bool Dialog(const char *title, const char *message, const char *buttons);
 struct MenuItem {
   const char *text = nullptr;
   const char *leadingIcon = nullptr;

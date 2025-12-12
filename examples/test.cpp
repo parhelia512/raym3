@@ -3,7 +3,7 @@
 #include <raylib.h>
 
 int main() {
-  InitWindow(1200, 1200, "raym3 Example");
+  InitWindow(1200, 1050, "raym3 Example");
   SetTargetFPS(60);
 
   raym3::Initialize();
@@ -38,6 +38,13 @@ int main() {
 
     raym3::Button("Outlined Button", {20, y, 150, 40},
                   raym3::ButtonVariant::Outlined);
+    y += spacing;
+
+    if (raym3::Button("Show Snackbar", {20, y, 150, 40},
+                      raym3::ButtonVariant::Filled)) {
+      raym3::SnackbarComponent::Show(
+          "Message Sent", 4.0f, {"UNDO", []() { printf("Undo clicked\n"); }});
+    }
     y += spacing;
 
     raym3::TextField(textBuffer, sizeof(textBuffer), {20, y, 250, 56},
@@ -111,52 +118,15 @@ int main() {
         raym3::Slider({20, y, 250, 40}, sliderValue, 0.0f, 100.0f, "Slider");
     y += spacing + 20;
 
-    raym3::Card({20, y, 350, 160}, raym3::CardVariant::Elevated);
-
-    raym3::CircularProgressIndicator({40, y + 50, 48, 48}, 0.0f, true,
-                                     Color{0, 0, 0, 0});
-    raym3::LinearProgressIndicator({100, y + 70, 200, 4}, 0.75f, false,
-                                   Color{0, 0, 0, 0});
-    raym3::LinearProgressIndicator({100, y + 90, 200, 4}, 0.0f, true,
-                                   Color{0, 0, 0, 0});
-
-    raym3::Icon("home", {40, y + 110, 24, 24}, raym3::IconVariation::Filled,
-                scheme.primary);
-    raym3::Icon("settings", {80, y + 110, 24, 24},
-                raym3::IconVariation::Outlined, scheme.primary);
-
-    if (raym3::IconButton("favorite", {120, y + 100, 48, 48},
-                          raym3::ButtonVariant::Text,
-                          raym3::IconVariation::Filled)) {
-      printf("Heart clicked!\n");
-    }
-    raym3::IconButton("add", {180, y + 100, 48, 48},
-                      raym3::ButtonVariant::Filled,
-                      raym3::IconVariation::Filled);
-    raym3::IconButton("edit", {240, y + 100, 48, 48},
-                      raym3::ButtonVariant::Tonal,
-                      raym3::IconVariation::Filled);
-    raym3::IconButton("delete", {300, y + 100, 48, 48},
-                      raym3::ButtonVariant::Outlined,
-                      raym3::IconVariation::Filled);
-
-    raym3::Text("Roboto Regular", {415, y + 50, 100, 24}, 16, scheme.onSurface,
-                raym3::FontWeight::Regular);
-    raym3::Text("Roboto Medium", {415, y + 75, 100, 24}, 16, scheme.onSurface,
-                raym3::FontWeight::Medium);
-    raym3::Text("Roboto Bold", {415, y + 100, 100, 24}, 16, scheme.onSurface,
-                raym3::FontWeight::Bold);
-
-    y += 170;
-
+    y += 10.0f;
+    // Moved RadioButtons and SegmentedButton to Column 1 flow
     static int selectedOption = 0;
-    if (raym3::RadioButton("Option 1", {40, y, 120, 48}, selectedOption == 0))
+    if (raym3::RadioButton("Option 1", {20, y, 120, 48}, selectedOption == 0))
       selectedOption = 0;
-    if (raym3::RadioButton("Option 2", {160, y, 120, 48}, selectedOption == 1))
+    if (raym3::RadioButton("Option 2", {140, y, 120, 48}, selectedOption == 1))
       selectedOption = 1;
-    if (raym3::RadioButton("Option 3", {280, y, 120, 48}, selectedOption == 2))
+    if (raym3::RadioButton("Option 3", {260, y, 120, 48}, selectedOption == 2))
       selectedOption = 2;
-
     y += 60;
 
     static int selectedSegment = 0;
@@ -166,11 +136,11 @@ int main() {
         {"Month", "calendar_month"},
         {"Year", "calendar_today"}};
 
-    raym3::SegmentedButton({40, y, 320, 40}, segmentItems, 4, &selectedSegment);
+    raym3::SegmentedButton({20, y, 320, 40}, segmentItems, 4, &selectedSegment);
 
-    y += 30;
-    raym3::Divider({20, y, 360, 20});
-    y += 30;
+    // --- Column 2 (x=420) ---
+    float col2X = 420.0f;
+    float col2Y = 20.0f;
 
     static raym3::MenuItem menuItems[] = {
         {.text = "Cut", .leadingIcon = "content_cut", .trailingText = "Cmd+X"},
@@ -183,14 +153,20 @@ int main() {
         {.isDivider = true},
         {.text = "Settings", .leadingIcon = "settings"},
         {.text = "Help", .leadingIcon = "help", .disabled = true}};
-    raym3::Menu({400, 20, 240, 300}, menuItems, 6, &selectedMenuItem);
+    raym3::Menu({col2X, col2Y, 240, 300}, menuItems, 6, &selectedMenuItem);
 
     static raym3::MenuItem gapMenuItems[] = {
         {.text = "Group A Item 1"}, {.text = "Group A Item 2"}, {.isGap = true},
         {.text = "Group B Item 1"}, {.text = "Group B Item 2"},
     };
     static int selectedGapMenuItem = -1;
-    raym3::Menu({660, 20, 200, 250}, gapMenuItems, 5, &selectedGapMenuItem);
+    raym3::Menu({col2X + 260, col2Y, 200, 250}, gapMenuItems, 5,
+                &selectedGapMenuItem);
+
+    col2Y += 320.0f;
+
+    raym3::Card({col2X, col2Y, 350, 160}, raym3::CardVariant::Elevated);
+    col2Y += 180.0f;
 
     static raym3::View3D view3D;
     static Camera3D camera = {{5.0f, 5.0f, 5.0f},
@@ -203,7 +179,7 @@ int main() {
     camera.position.x = sinf(time) * 5.0f;
     camera.position.z = cosf(time) * 5.0f;
 
-    view3D.Render({400, 400, 300, 200}, []() {
+    view3D.Render({col2X, col2Y, 300, 200}, []() {
       BeginMode3D(camera);
       ClearBackground(RAYWHITE);
       DrawGrid(10, 1.0f);
@@ -211,6 +187,48 @@ int main() {
       DrawCubeWires({0, 0, 0}, 2.0f, 2.0f, 2.0f, MAROON);
       EndMode3D();
     });
+    col2Y += 220.0f;
+
+    raym3::CircularProgressIndicator({col2X, col2Y, 48, 48}, 0.0f, true,
+                                     Color{0, 0, 0, 0});
+    raym3::LinearProgressIndicator({col2X + 60, col2Y + 20, 200, 4}, 0.75f,
+                                   false, Color{0, 0, 0, 0});
+    raym3::LinearProgressIndicator({col2X + 60, col2Y + 40, 200, 4}, 0.0f, true,
+                                   Color{0, 0, 0, 0});
+    col2Y += 80.0f;
+
+    raym3::Icon("home", {col2X, col2Y + 10, 24, 24},
+                raym3::IconVariation::Filled, scheme.primary);
+    raym3::Icon("settings", {col2X + 40, col2Y + 10, 24, 24},
+                raym3::IconVariation::Outlined, scheme.primary);
+
+    if (raym3::IconButton("favorite", {col2X + 80, col2Y, 48, 48},
+                          raym3::ButtonVariant::Text,
+                          raym3::IconVariation::Filled)) {
+      printf("Heart clicked!\n");
+    }
+    raym3::IconButton("add", {col2X + 140, col2Y, 48, 48},
+                      raym3::ButtonVariant::Filled,
+                      raym3::IconVariation::Filled);
+    raym3::IconButton("edit", {col2X + 200, col2Y, 48, 48},
+                      raym3::ButtonVariant::Tonal,
+                      raym3::IconVariation::Filled);
+    raym3::IconButton("delete", {col2X + 260, col2Y, 48, 48},
+                      raym3::ButtonVariant::Outlined,
+                      raym3::IconVariation::Filled);
+    col2Y += 60.0f;
+
+    raym3::Text("Roboto Regular", {col2X, col2Y, 100, 24}, 16, scheme.onSurface,
+                raym3::FontWeight::Regular);
+    raym3::Text("Roboto Medium", {col2X, col2Y + 25, 100, 24}, 16,
+                scheme.onSurface, raym3::FontWeight::Medium);
+    raym3::Text("Roboto Bold", {col2X, col2Y + 50, 100, 24}, 16,
+                scheme.onSurface, raym3::FontWeight::Bold);
+
+    // --- Column 3 (x=960) ---
+    float col3X = 960.0f;
+    float col3Y = 20.0f;
+    // Lists are rendered below
 
     // List Component Demo
     static raym3::ListItem diningChildren[] = {{.text = "Breakfast & brunch"},
@@ -235,7 +253,7 @@ int main() {
 
     float listHeight = 0;
     // Render list on the right side of the split menu
-    raym3::List({880, 20, 300, 600}, rootItems, 7, &listHeight);
+    raym3::List({col3X, col3Y, 220, 600}, rootItems, 7, &listHeight);
 
     // Deep Nesting Example
     static raym3::ListItem level3[] = {{.text = "Level 3 Item 1"},
@@ -259,15 +277,18 @@ int main() {
                                         .leadingIcon = "star"}};
 
     float deepListHeight = 0;
-    raym3::List({880, 20 + listHeight + 20, 300, 300}, level1, 2,
+    raym3::List({col3X, col3Y + listHeight + 20, 220, 300}, level1, 2,
                 &deepListHeight);
 
     if (showDialog) {
-      if (raym3::Dialog({0, 0, 800, 600}, "Dialog",
-                        "This is a Material Design 3 dialog!", "Cancel;OK")) {
+      if (raym3::Dialog("Dialog", "This is a Material Design 3 dialog!",
+                        "Cancel;OK")) {
         showDialog = false;
       }
     }
+
+    raym3::SnackbarComponent::Render(
+        {0, 0, (float)GetScreenWidth(), (float)GetScreenHeight()});
 
     raym3::EndFrame();
     EndDrawing();

@@ -7,7 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(RAYM3_USE_YOGA "Enable Yoga layout support" ON)
 set(YOGA_DIR "" CACHE PATH "Path to Yoga directory (auto-detected if not set and yoga is a sibling directory)")
-option(RAYM3_USE_INPUT_LAYERS "Enable layered input system with render queue" OFF)
+option(RAYM3_USE_INPUT_LAYERS "Enable layered input system with render queue" ON)
 option(RAYM3_EMBED_RESOURCES "Embed SVG icons and fonts into the static library" OFF)
 option(RAYM3_EMBED_ALL_ICONS "Embed all icons instead of only used ones (ignored if RAYM3_EMBED_RESOURCES is OFF)" OFF)
 

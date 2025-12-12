@@ -6,7 +6,7 @@ namespace raym3 {
 
 class DialogComponent {
 public:
-  static bool Render(Rectangle bounds, const char *title, const char *message,
+  static bool Render(const char *title, const char *message,
                      const char *buttons);
 
   static bool IsActive() { return isOpen_; }

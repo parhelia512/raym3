@@ -35,12 +35,12 @@ void Initialize() {
 
   Theme::Initialize();
   SvgRenderer::Initialize(nullptr); // Auto-detect resource path
-  
+
 #if RAYM3_USE_INPUT_LAYERS
   InputLayerManager::Initialize();
   RenderQueue::Initialize();
 #endif
-  
+
   initialized = true;
 }
 
@@ -58,7 +58,7 @@ void BeginFrame() {
     Initialize();
   TextFieldComponent::ResetFieldId();
   SliderComponent::ResetFieldId();
-  
+
 #if RAYM3_USE_INPUT_LAYERS
   InputLayerManager::BeginFrame();
   RenderQueue::BeginFrame();
@@ -163,9 +163,8 @@ void Card(Rectangle bounds, CardVariant variant) {
   CardComponent::Render(bounds, variant);
 }
 
-bool Dialog(Rectangle bounds, const char *title, const char *message,
-            const char *buttons) {
-  return DialogComponent::Render(bounds, title, message, buttons);
+bool Dialog(const char *title, const char *message, const char *buttons) {
+  return DialogComponent::Render(title, message, buttons);
 }
 
 void Menu(Rectangle bounds, const MenuItem *items, int itemCount,
