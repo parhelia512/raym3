@@ -135,6 +135,11 @@ float Slider(Rectangle bounds, float value, float min, float max,
   return SliderComponent::Render(bounds, value, min, max, label);
 }
 
+float Slider(Rectangle bounds, float value, float min, float max,
+             const char *label, const SliderOptions &options) {
+  return SliderComponent::Render(bounds, value, min, max, label, options);
+}
+
 void Icon(const char *name, Rectangle bounds, IconVariation variation,
           Color color) {
   IconComponent::Render(name, bounds, variation, color);

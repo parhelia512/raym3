@@ -46,6 +46,8 @@ bool Switch(const char *label, Rectangle bounds, bool *checked);
 bool RadioButton(const char *label, Rectangle bounds, bool selected);
 float Slider(Rectangle bounds, float value, float min, float max,
              const char *label = nullptr);
+float Slider(Rectangle bounds, float value, float min, float max,
+             const char *label, const SliderOptions &options);
 
 void CircularProgressIndicator(Rectangle bounds, float value = 0.0f,
                                bool indeterminate = false, Color color = BLANK,

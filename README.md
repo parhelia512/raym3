@@ -135,6 +135,17 @@ The Menu component supports:
 - **Icon-Only Mode**: Set `iconOnly = true` for compact horizontal menus
 - **Disabled Items**: Set `disabled = true` to prevent interaction
 
+### Slider Component Features
+
+The Slider component supports MD3 customization:
+
+- **Inset Icons**: Add icons *inside* the track (`startIcon`, `endIcon`)
+- **Value Indicator**: Show a value bubble above the thumb on drag (`showValueIndicator`)
+- **Start/End Text**: Add text labels
+- **Track Colors**: Customize active/inactive track colors
+- **Handle Color**: Customize the handle thumb color
+- **End Dot**: Customize or hide the end-of-track dot
+
 ## Building
 
 ### Basic Usage (CMake)

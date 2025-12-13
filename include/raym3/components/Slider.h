@@ -9,6 +9,8 @@ class SliderComponent {
 public:
   static float Render(Rectangle bounds, float value, float min, float max,
                       const char *label = nullptr);
+  static float Render(Rectangle bounds, float value, float min, float max,
+                      const char *label, const SliderOptions &options);
   static void ResetFieldId();
 
 private:

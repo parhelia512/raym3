@@ -3,7 +3,7 @@
 #include <raylib.h>
 
 int main() {
-  InitWindow(1200, 1050, "raym3 Example");
+  InitWindow(1200, 1000, "raym3 Example");
   SetTargetFPS(60);
 
   raym3::Initialize();
@@ -36,12 +36,8 @@ int main() {
     raym3::Button("Text Button", {20, y, 150, 40}, raym3::ButtonVariant::Text);
     y += spacing;
 
-    raym3::Button("Outlined Button", {20, y, 150, 40},
-                  raym3::ButtonVariant::Outlined);
-    y += spacing;
-
-    if (raym3::Button("Show Snackbar", {20, y, 150, 40},
-                      raym3::ButtonVariant::Filled)) {
+    if (raym3::Button("Outlined Button", {20, y, 150, 40},
+                      raym3::ButtonVariant::Outlined)) {
       raym3::SnackbarComponent::Show(
           "Message Sent", 4.0f, {"UNDO", []() { printf("Undo clicked\n"); }});
     }
@@ -51,25 +47,9 @@ int main() {
                      "Text Field");
     y += spacing + 20;
 
-    static char filledBuffer[256] = "";
-    static char outlinedBuffer[256] = "";
     static char filledWithIconsBuffer[256] = "";
     static char outlinedWithIconsBuffer[256] = "";
     static bool showPassword = false;
-
-    raym3::TextFieldOptions filledOpts;
-    filledOpts.variant = raym3::TextFieldVariant::Filled;
-    filledOpts.placeholder = "Filled text field";
-    raym3::TextField(filledBuffer, sizeof(filledBuffer), {20, y, 300, 56},
-                     "Filled", filledOpts);
-    y += spacing + 20;
-
-    raym3::TextFieldOptions outlinedOpts;
-    outlinedOpts.variant = raym3::TextFieldVariant::Outlined;
-    outlinedOpts.placeholder = "Outlined text field";
-    raym3::TextField(outlinedBuffer, sizeof(outlinedBuffer), {20, y, 300, 56},
-                     "Outlined", outlinedOpts);
-    y += spacing + 20;
 
     static bool clearClicked = false;
     raym3::TextFieldOptions filledIconsOpts;
@@ -116,6 +96,25 @@ int main() {
 
     sliderValue =
         raym3::Slider({20, y, 250, 40}, sliderValue, 0.0f, 100.0f, "Slider");
+    y += spacing + 20;
+
+    // Slider with inset icons (both ends)
+    static float volumeValue = 50.0f;
+    raym3::SliderOptions volumeOpts;
+    volumeOpts.startIcon = "volume_mute";
+    volumeOpts.endIcon = "volume_up";
+    volumeOpts.showValueIndicator = true;
+    volumeValue = raym3::Slider({20, y, 250, 40}, volumeValue, 0.0f, 100.0f,
+                                "Volume", volumeOpts);
+    y += spacing + 20;
+
+    // Slider with value bubble
+    static float rangeValue = 50.0f;
+    raym3::SliderOptions rangeOpts;
+    rangeOpts.showValueIndicator = true;
+    rangeOpts.valueFormat = "%.0f%%";
+    rangeValue = raym3::Slider({20, y, 250, 40}, rangeValue, 0.0f, 100.0f,
+                               "Range", rangeOpts);
     y += spacing + 20;
 
     y += 10.0f;
@@ -204,6 +203,16 @@ int main() {
       DrawCubeWires({0, 0, 0}, 2.0f, 2.0f, 2.0f, MAROON);
       EndMode3D();
     });
+    // Text examples beside View3D
+    float textExampleX = col2X + 320;
+    float textExampleY = col2Y;
+    raym3::Text("Roboto Regular", {textExampleX, textExampleY, 100, 24}, 16,
+                scheme.onSurface, raym3::FontWeight::Regular);
+    raym3::Text("Roboto Medium", {textExampleX, textExampleY + 25, 100, 24}, 16,
+                scheme.onSurface, raym3::FontWeight::Medium);
+    raym3::Text("Roboto Bold", {textExampleX, textExampleY + 50, 100, 24}, 16,
+                scheme.onSurface, raym3::FontWeight::Bold);
+
     col2Y += 220.0f;
 
     raym3::CircularProgressIndicator({col2X, col2Y, 48, 48}, 0.0f, true,
@@ -234,13 +243,6 @@ int main() {
                       raym3::ButtonVariant::Outlined,
                       raym3::IconVariation::Filled);
     col2Y += 60.0f;
-
-    raym3::Text("Roboto Regular", {col2X, col2Y, 100, 24}, 16, scheme.onSurface,
-                raym3::FontWeight::Regular);
-    raym3::Text("Roboto Medium", {col2X, col2Y + 25, 100, 24}, 16,
-                scheme.onSurface, raym3::FontWeight::Medium);
-    raym3::Text("Roboto Bold", {col2X, col2Y + 50, 100, 24}, 16,
-                scheme.onSurface, raym3::FontWeight::Bold);
 
     // --- Column 3 (x=960) ---
     float col3X = 960.0f;

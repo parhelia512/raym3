@@ -1,5 +1,6 @@
 #include "raym3/components/Slider.h"
 #include "raym3/components/Dialog.h"
+#include "raym3/components/Icon.h"
 #include "raym3/rendering/Renderer.h"
 #include "raym3/styles/Theme.h"
 #include <algorithm>
@@ -55,6 +56,12 @@ static ComponentState GetSliderState(Rectangle bounds, Rectangle thumbRect) {
 
 float SliderComponent::Render(Rectangle bounds, float value, float min,
                               float max, const char *label) {
+  return Render(bounds, value, min, max, label, SliderOptions{});
+}
+
+float SliderComponent::Render(Rectangle bounds, float value, float min,
+                              float max, const char *label,
+                              const SliderOptions &options) {
   ColorScheme &scheme = Theme::GetColorScheme();
 
   // MD3 measurements
@@ -64,7 +71,15 @@ float SliderComponent::Render(Rectangle bounds, float value, float min,
 
   Rectangle trackBounds = GetTrackBounds(bounds);
 
-  // Calculate normalized value and splitX early
+  // Inset Icons Logic (MD3)
+  // Icons are inside the track, not outside.
+  // We do NOT shrink the track bounds.
+  // We render the icon inside the track on the left (startIcon).
+  float itemSize = 24.0f;
+  float padding = 8.0f;
+  float centerY = trackBounds.y + trackHeight / 2.0f;
+
+  // Calculate normalized value and splitX
   float normalizedValue = (value - min) / (max - min);
   normalizedValue = std::clamp(normalizedValue, 0.0f, 1.0f);
   float splitX = trackBounds.x + (trackBounds.width * normalizedValue);
@@ -83,20 +98,22 @@ float SliderComponent::Render(Rectangle bounds, float value, float min,
     state = ComponentState::Default;
   }
 
-  // Handle input
+  // Handle input using same logic as before...
   int fieldId = currentFieldId_++;
   bool isDraggingThis = (activeFieldId_ == fieldId);
 
   Vector2 mousePos = GetMousePosition();
-  // Expand hit target for easier interaction
   Rectangle hitRect = {trackBounds.x, trackBounds.y - 10, trackBounds.width,
                        trackBounds.height + 20};
 #if RAYM3_USE_INPUT_LAYERS
   bool canProcessInput = InputLayerManager::ShouldProcessMouseInput(bounds);
-  bool mouseOverHit = canProcessInput && CheckCollisionPointRec(mousePos, hitRect);
+  bool mouseOverHit =
+      canProcessInput && CheckCollisionPointRec(mousePos, hitRect);
   bool mouseDown = canProcessInput && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
-  bool mousePressed = canProcessInput && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
-  bool mouseReleased = canProcessInput && IsMouseButtonReleased(MOUSE_BUTTON_LEFT);
+  bool mousePressed =
+      canProcessInput && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+  bool mouseReleased =
+      canProcessInput && IsMouseButtonReleased(MOUSE_BUTTON_LEFT);
 #else
   bool mouseOverHit = CheckCollisionPointRec(mousePos, hitRect);
   bool mouseDown = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
@@ -144,93 +161,133 @@ float SliderComponent::Render(Rectangle bounds, float value, float min,
     }
   }
 
-  // Draw Tracks
-  // "The taller the slider gets the less circular the track should get"
-  // Use a fixed max radius (e.g., 6.0f) so that as height increases, it looks
-  // more rectangular. For small heights (e.g. 4.0f), it will still be a pill
-  // (2.0f radius).
+  // Determine colors
+  Color activeColor = options.activeTrackColor.a > 0 ? options.activeTrackColor
+                                                     : scheme.primary;
+  Color inactiveColor = options.inactiveTrackColor.a > 0
+                            ? options.inactiveTrackColor
+                            : scheme.surfaceVariant;
+  Color handleColor =
+      options.handleColor.a > 0 ? options.handleColor : scheme.primary;
   float cornerRadius = std::min(trackHeight / 2.0f, 6.0f);
 
-  // 1. Active Track (Left side)
+  // 1. Inactive Track (Right side)
+  // Draw full rounded rect first as background (inactive part visible on right)
+  Renderer::DrawRoundedRectangle(trackBounds, cornerRadius, inactiveColor);
+
+  // 2. Active Track (Left side)
   if (normalizedValue > 0.0f) {
-    Rectangle activeRect = {trackBounds.x, trackBounds.y,
-                            trackBounds.width * normalizedValue, trackHeight};
-
-    // Draw rounded start
-    Vector2 leftCircleCenter = {trackBounds.x + cornerRadius,
-                                trackBounds.y + cornerRadius};
-    // Draw top-left and bottom-left quadrants or just a circle?
-    // Since we want "less circular", we should use DrawRoundedRectangle logic
-    // but clipped? Raylib's DrawRoundedRectangle handles all corners. We want
-    // Left corners rounded, Right corners flat (at split). A simple way: Draw
-    // rounded rect for the whole active part, but if it's not 100%, we need the
-    // right side flat. Or: Draw a rounded rect of full width, then clip? No.
-    // Construct it:
-    // 1. Circle/Arc at left.
-    // 2. Rect to right.
-    // Actually, with a small fixed radius, drawing a circle at the corner is
-    // not enough, we need the corner arc. Let's approximate: Draw a rounded
-    // rect that extends slightly past the split, then clip? Or just draw a
-    // rounded rect from start to split. If split is far enough, the right
-    // corners will be rounded too, which is wrong. Correct approach for
-    // "Rounded Left, Flat Right": Draw a Rectangle from (x+radius) to (splitX).
-    // Draw a Rectangle from (x) to (x+radius) with rounded corners? No.
-    // Draw a rounded rectangle of width (splitX - x), then cover the right
-    // corners? Draw a rounded rectangle from x to splitX+radius, then clip to
-    // splitX? Let's use the Scissor mode for cleanliness.
-
     BeginScissorMode((int)trackBounds.x, (int)trackBounds.y,
                      (int)(trackBounds.width * normalizedValue),
                      (int)trackHeight);
-    Renderer::DrawRoundedRectangle(
-        trackBounds, cornerRadius,
-        scheme.primary); // Draw full active track, clipped to current value
+    Renderer::DrawRoundedRectangle(trackBounds, cornerRadius, activeColor);
     EndScissorMode();
   }
 
-  // 2. Inactive Track (Right side)
-  if (normalizedValue < 1.0f) {
-    // Clip from splitX to end
-    int startX = (int)(trackBounds.x + trackBounds.width * normalizedValue);
-    int width = (int)(trackBounds.width * (1.0f - normalizedValue));
+  // Render Start Icon (Inset) if present
+  // It is rendered ON TOP of the active/inactive track.
+  // If normalizedValue covers the icon, it should be contrasted against
+  // activeColor (e.g. onPrimary). If not, contrasted against inactiveColor
+  // (e.g. onSurfaceVariant). Actually, MD3 usually puts the icon on the active
+  // track side.
+  if (options.startIcon) {
+    Rectangle itemBounds = {trackBounds.x + padding, centerY - itemSize / 2.0f,
+                            itemSize, itemSize};
 
-    BeginScissorMode(startX, (int)trackBounds.y, width, (int)trackHeight);
-    Renderer::DrawRoundedRectangle(
-        trackBounds, cornerRadius,
-        scheme.surfaceVariant); // Draw full inactive track, clipped
-    EndScissorMode();
+    // Determine icon color based on coverage.
+    // If the splitX is past the icon's center, it's mostly covered by active
+    // track.
+    bool covered = (splitX > (itemBounds.x + itemSize / 2.0f));
+    Color iconColor = covered ? scheme.onPrimary : scheme.onSurfaceVariant;
 
-    // Draw End Dot
-    // "End of track circle should be 3 px wide it should be a small dot in
-    // primary colors" "Thumb should snap to it at the 100%" We draw it at the
-    // visual end of the track. Position: Right edge - padding? Or centered in
-    // the "rounded" area? If the track is 24px high, centered y. x:
-    // trackBounds.x + trackBounds.width - (something). If thumb snaps to it,
-    // and thumb is at splitX. At 100%, splitX = right edge. So dot should be at
-    // right edge? Let's place it at `right - 6px` (center of the 12px padding
-    // area usually). Or just `right - 4px`.
-    float dotRadius = 1.5f; // 3px wide
+    // If activeTrackColor was custom, we should probably pick a contrasting
+    // color. For simplicity, sticking to theme semantics unless overridden if
+    // we added iconColor option.
+
+    raym3::IconComponent::Render(options.startIcon, itemBounds,
+                                 IconVariation::Filled, iconColor);
+  }
+
+  // Render End Icon (Inset logic, though usually not standard MD3 slider,
+  // supporting per request)
+  if (options.endIcon) {
+    Rectangle itemBounds = {trackBounds.x + trackBounds.width - itemSize -
+                                padding,
+                            centerY - itemSize / 2.0f, itemSize, itemSize};
+    // Usually end icon is on inactive part
+    bool covered = (splitX > (itemBounds.x + itemSize / 2.0f));
+    Color iconColor = covered ? scheme.onPrimary : scheme.onSurfaceVariant;
+    raym3::IconComponent::Render(options.endIcon, itemBounds,
+                                 IconVariation::Filled, iconColor);
+  }
+
+  // Draw End Dot (only if requested and not replaced by end icon? Actually dot
+  // is usually stop indicator) MD3: Stop indicators are dots.
+  if (options.showEndDot && !options.endIcon) {
+    float dotRadius = 1.5f;
     Vector2 dotPos = {trackBounds.x + trackBounds.width - 6.0f,
                       trackBounds.y + trackHeight / 2.0f};
-    DrawCircleV(dotPos, dotRadius, scheme.primary);
+    // Dot color should be activeColor? Or onSurfaceVariant?
+    // If track is filled up to there (1.0), it's on active. But at 1.0 thumb
+    // covers it. Usually it's on the inactive part.
+    DrawCircleV(dotPos, dotRadius, activeColor);
   }
 
-  // Draw Handle (Vertical Line)
-
   // Gap Mask (Surface color)
-  // User requested "surface color bar on each side" to give the illusion of a
-  // gap. "Instead of an outline we should just make the thumb round and add a
-  // surface color bar on each side" This implies a flat vertical cut, not a
-  // rounded one. We draw a rectangle behind the thumb to mask the track.
   float gapSize = 6.0f;
   Rectangle maskRect = {thumbRect.x - gapSize,
                         thumbRect.y, // Match thumb y
                         thumbRect.width + (gapSize * 2), thumbRect.height};
   DrawRectangleRec(maskRect, scheme.surface);
 
-  // Draw thumb (Primary color)
-  // "inner thumb ... should be rounded"
-  Renderer::DrawRoundedRectangle(thumbRect, thumbWidth / 2.0f, scheme.primary);
+  // Draw Handle (Thumb)
+  Renderer::DrawRoundedRectangle(thumbRect, thumbWidth / 2.0f, handleColor);
+
+  // Draw Value Indicator Bubble (if active or requested)
+  // MD3 spec: Bubble appears on press/drag.
+  if (isDraggingThis && options.showValueIndicator) {
+    char valueStr[32];
+    snprintf(valueStr, sizeof(valueStr),
+             options.valueFormat ? options.valueFormat : "%.0f", value);
+
+    // Bubble dimensions
+    float bubbleWidth = 48.0f;  // Roughly
+    float bubbleHeight = 32.0f; // roughly
+    float triangleHeight = 6.0f;
+    float bubbleY = thumbRect.y - bubbleHeight - triangleHeight - 4.0f;
+    float bubbleX = thumbRect.x + thumbRect.width / 2.0f - bubbleWidth / 2.0f;
+
+    Rectangle bubbleRect = {bubbleX, bubbleY, bubbleWidth, bubbleHeight};
+
+    // Draw Bubble Shape (Inverse pill?)
+    // Usually it's an inverted teardrop shape. Use rounded rect for now.
+    Color bubbleColor = scheme.inverseSurface;
+    Color valueColor = scheme.inverseOnSurface;
+
+    Renderer::DrawRoundedRectangle(bubbleRect, bubbleHeight / 2.0f,
+                                   bubbleColor);
+
+    // Little triangle pointer
+    Vector2 p1 = {bubbleRect.x + bubbleRect.width / 2.0f - 6.0f,
+                  bubbleRect.y + bubbleRect.height};
+    Vector2 p2 = {bubbleRect.x + bubbleRect.width / 2.0f + 6.0f,
+                  bubbleRect.y + bubbleRect.height};
+    Vector2 p3 = {bubbleRect.x + bubbleRect.width / 2.0f,
+                  bubbleRect.y + bubbleRect.height + triangleHeight};
+    DrawTriangle(p1, p2, p3, bubbleColor); // Note: Raylib DrawTriangle order
+                                           // might matter for culling
+    // Actually DrawTriangle draws counter-clockwise by default? Or clockwise?
+    // Let's ensure it draws.
+    DrawTriangle(p1, p3, p2, bubbleColor);
+
+    // Draw Value
+    Vector2 textSize =
+        Renderer::MeasureText(valueStr, 14.0f, FontWeight::Medium);
+    Vector2 textPos = {bubbleRect.x + (bubbleRect.width - textSize.x) / 2.0f,
+                       bubbleRect.y + (bubbleRect.height - 14.0f) / 2.0f};
+    Renderer::DrawText(valueStr, textPos, 14.0f, valueColor,
+                       FontWeight::Medium);
+  }
 
   if (label) {
     Vector2 labelPos = {bounds.x, bounds.y};

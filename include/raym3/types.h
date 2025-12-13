@@ -62,19 +62,33 @@ struct ShapeTokens {
 
 struct TextFieldOptions {
   TextFieldVariant variant = TextFieldVariant::Filled;
-  const char* placeholder = nullptr;
+  const char *placeholder = nullptr;
   bool passwordMode = false;
   bool readOnly = false;
   bool disabled = false;
-  const char* inputMask = nullptr;
+  const char *inputMask = nullptr;
   int maxUndoHistory = 15;
-  const char* leadingIcon = nullptr;
-  const char* trailingIcon = nullptr;
+  const char *leadingIcon = nullptr;
+  const char *trailingIcon = nullptr;
   bool (*onLeadingIconClick)() = nullptr;
   bool (*onTrailingIconClick)() = nullptr;
   Color backgroundColor = {0, 0, 0, 0}; // If alpha > 0, use as background color
-  Color textColor = {0, 0, 0, 0}; // If alpha > 0, use as text color
-  Color iconColor = {0, 0, 0, 0}; // If alpha > 0, use as icon color
+  Color textColor = {0, 0, 0, 0};       // If alpha > 0, use as text color
+  Color iconColor = {0, 0, 0, 0};       // If alpha > 0, use as icon color
+};
+
+struct SliderOptions {
+  const char *startIcon = nullptr;
+  const char *endIcon = nullptr;
+  const char *startText = nullptr;
+  const char *endText = nullptr;
+  bool showEndDot = true; // Defaults to true, but if endIcon/endText is set,
+                          // logic will likely disable unless forced
+  bool showValueIndicator = false;  // Show value in a bubble above thumb
+  const char *valueFormat = "%.0f"; // Format string for value indicator
+  Color activeTrackColor = {0, 0, 0, 0};
+  Color inactiveTrackColor = {0, 0, 0, 0};
+  Color handleColor = {0, 0, 0, 0};
 };
 
 } // namespace raym3
