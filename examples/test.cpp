@@ -88,6 +88,17 @@ int main() {
                      outlinedIconsOpts);
     y += spacing + 20;
 
+    // Native Text Input Demo (with IME support)
+    static char nativeInputBuffer[256] = "";
+    raym3::TextFieldOptions nativeInputOpts;
+    nativeInputOpts.variant = raym3::TextFieldVariant::Filled;
+    nativeInputOpts.useNativeInput = true; // Enable platform-native input!
+    nativeInputOpts.placeholder = "Type in any language (IME supported)";
+    nativeInputOpts.leadingIcon = "language";
+    raym3::TextField(nativeInputBuffer, sizeof(nativeInputBuffer),
+                     {20, y, 300, 56}, "Native Input (IME)", nativeInputOpts);
+    y += spacing + 20;
+
     raym3::Checkbox("Checkbox", {20, y, 200, 24}, &checkboxChecked);
     y += spacing;
 

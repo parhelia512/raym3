@@ -18,6 +18,10 @@
 #include "raym3/input/InputLayer.h"
 #endif
 
+#ifdef RAYM3_ENABLE_NATIVE_TEXT_INPUT
+#include "raym3/input/NativeTextInput.h"
+#endif
+
 namespace raym3 {
 
 struct TextFieldState {
@@ -259,6 +263,96 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
       fieldState.selectionEnd = -1;
     }
   }
+
+#ifdef RAYM3_ENABLE_NATIVE_TEXT_INPUT
+  // Handle native text input if enabled
+  bool useNativeInputBackend =
+      options.useNativeInput && NativeTextInput::IsAvailable();
+
+  if (useNativeInputBackend) {
+    // Get color scheme for styling
+    ColorScheme &scheme = Theme::GetColorScheme();
+
+    // Handle focus changes
+    if (isFocused && !NativeTextInput::IsActive()) {
+      // Just gained focus - activate native input
+      NativeTextInput::Activate(buffer, bufferSize, options.passwordMode,
+                                false);
+
+      // Set up callback to update buffer when text changes
+      NativeTextInput::SetTextChangedCallback(
+          [buffer, bufferSize](const char *text) {
+            if (text && buffer) {
+              strncpy(buffer, text, bufferSize - 1);
+              buffer[bufferSize - 1] = '\0';
+            }
+          });
+    } else if (!isFocused && NativeTextInput::IsActive()) {
+      // Lost focus - deactivate native input
+      NativeTextInput::Deactivate();
+    }
+
+    // Update and style native input when active
+    if (isFocused && NativeTextInput::IsActive()) {
+      NativeTextInput::Update();
+
+      // Sync text from native input
+      const char *nativeText = NativeTextInput::GetText();
+      if (nativeText && buffer) {
+        strncpy(buffer, nativeText, bufferSize - 1);
+        buffer[bufferSize - 1] = '\0';
+      }
+
+      // Sync cursor and selection
+      fieldState.cursorPosition = NativeTextInput::GetCursorPosition();
+      int selStart, selEnd;
+      if (NativeTextInput::GetSelection(selStart, selEnd)) {
+        fieldState.selectionStart = selStart;
+        fieldState.selectionEnd = selEnd;
+      } else {
+        fieldState.selectionStart = -1;
+        fieldState.selectionEnd = -1;
+      }
+
+      // Set colors - transparent background, only text color matters
+      Color textColor =
+          options.textColor.a > 0 ? options.textColor : scheme.onSurface;
+      Color transparentBg = {0, 0, 0, 0}; // Fully transparent
+
+      NativeTextInput::SetColors(textColor.r, textColor.g, textColor.b,
+                                 textColor.a, transparentBg.r, transparentBg.g,
+                                 transparentBg.b, transparentBg.a);
+
+      // Calculate text area accounting for icons and padding
+      float iconSize = 24.0f;
+      float iconPadding = 12.0f;
+      float basePadding = 16.0f;
+      float textPaddingLeft = basePadding;
+      float textPaddingRight = basePadding;
+
+      if (options.leadingIcon) {
+        textPaddingLeft += iconSize + iconPadding;
+      }
+      if (options.trailingIcon) {
+        textPaddingRight += iconSize + iconPadding;
+      }
+
+      // Account for rounded corners and add vertical padding for better
+      // alignment
+      float cornerPadding = 8.0f;
+
+      // Position native field in the actual text area
+      float nativeX = inputBounds.x + textPaddingLeft;
+      float nativeY = inputBounds.y + cornerPadding;
+      float nativeWidth =
+          inputBounds.width - textPaddingLeft - textPaddingRight;
+      float nativeHeight = inputBounds.height - (cornerPadding * 2);
+
+      NativeTextInput::SetCompositionRect(nativeX, nativeY, nativeWidth,
+                                          nativeHeight);
+    }
+  }
+#endif
 
   if (options.disabled) {
     ComponentState state = ComponentState::Disabled;
@@ -533,7 +627,16 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
   bool isEmpty = !buffer || strlen(buffer) == 0;
   bool showPlaceholder = isEmpty && !isFocused && options.placeholder;
 
-  if (isFocused) {
+  // Only render raym3 text/cursor/selection if native input is NOT active
+  // When native input is active, the NSTextField handles all visual feedback
+#ifdef RAYM3_ENABLE_NATIVE_TEXT_INPUT
+  bool skipTextRendering =
+      options.useNativeInput && NativeTextInput::IsActive();
+#else
+  bool skipTextRendering = false;
+#endif
+
+  if (isFocused && !skipTextRendering) {
     NormalizeSelection(fieldState.selectionStart, fieldState.selectionEnd);
     if (fieldState.selectionStart != -1 && fieldState.selectionEnd != -1) {
       DrawSelection(inputBounds, buffer, fieldState.selectionStart,
@@ -550,27 +653,29 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
     textColorToUse = options.textColor;
   }
 
-  if (showPlaceholder) {
-    Color placeholderColor = scheme.onSurfaceVariant;
-    placeholderColor.a = 180;
-    if (options.textColor.a > 0) {
-      placeholderColor = options.textColor;
+  if (!skipTextRendering) {
+    if (showPlaceholder) {
+      Color placeholderColor = scheme.onSurfaceVariant;
       placeholderColor.a = 180;
+      if (options.textColor.a > 0) {
+        placeholderColor = options.textColor;
+        placeholderColor.a = 180;
+      }
+      Renderer::DrawText(options.placeholder, textPos, 16.0f, placeholderColor,
+                         FontWeight::Regular);
+    } else if (!isEmpty) {
+      const char *displayText = buffer;
+      std::string maskedText;
+      if (options.passwordMode) {
+        maskedText = std::string(strlen(buffer), '*');
+        displayText = maskedText.c_str();
+      }
+      Renderer::DrawText(displayText, textPos, 16.0f, textColorToUse,
+                         FontWeight::Regular);
     }
-    Renderer::DrawText(options.placeholder, textPos, 16.0f, placeholderColor,
-                       FontWeight::Regular);
-  } else if (!isEmpty) {
-    const char *displayText = buffer;
-    std::string maskedText;
-    if (options.passwordMode) {
-      maskedText = std::string(strlen(buffer), '*');
-      displayText = maskedText.c_str();
-    }
-    Renderer::DrawText(displayText, textPos, 16.0f, textColorToUse,
-                       FontWeight::Regular);
   }
 
-  if (activeFieldId_ == fieldId && !options.readOnly) {
+  if (activeFieldId_ == fieldId && !options.readOnly && !skipTextRendering) {
     bool shiftPressed = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
 
     if (IsKeyDown(KEY_LEFT)) {
@@ -698,7 +803,7 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
     }
 
     bool showPlaceholder = isEmpty && options.placeholder;
-    if (!showPlaceholder) {
+    if (!showPlaceholder && !skipTextRendering) {
       UpdateCursor(buffer, bufferSize, fieldState.lastBlinkTime);
       DrawCursor(inputBounds, buffer, fieldState.cursorPosition,
                  fieldState.scrollOffset, fieldState.lastBlinkTime,
