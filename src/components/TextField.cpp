@@ -745,9 +745,9 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
           }
           buffer[fieldState.cursorPosition] = (char)key;
           fieldState.cursorPosition++;
-          if (fieldState.cursorPosition < bufferSize) {
-            buffer[fieldState.cursorPosition] = '\0';
-          } else {
+          // Ensure null termination at new end of string
+          int newLen = (int)strlen(buffer);
+          if (newLen >= bufferSize) {
             buffer[bufferSize - 1] = '\0';
           }
           fieldState.lastValue = std::string(buffer);
