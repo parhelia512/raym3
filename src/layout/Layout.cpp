@@ -1,7 +1,9 @@
 #include "raym3/layout/Layout.h"
+#include "raym3/components/TabBar.h"
 #include <map>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 #if RAYM3_USE_YOGA
 #include <yoga/Yoga.h>
@@ -27,6 +29,7 @@ struct ScrollContainerState {
   bool isDragging = false;
   Vector2 dragStart = {0, 0};
   int nodeId = -1;
+  bool scissorStarted = false;
 };
 
 struct Layout::Impl {
@@ -36,6 +39,9 @@ struct Layout::Impl {
   std::vector<bool> nodeIsScrollContainer;
   int currentNodeId = 0;
 
+  // State offset for unrelated layouts (e.g. tabs) sharing the same frame
+  int idOffset = 0;
+
   // Scroll container stack
   std::vector<ScrollContainerState> scrollStack;
 
@@ -43,8 +49,8 @@ struct Layout::Impl {
   // In a real immediate mode system, we might use a hash of the path or ID
   // stack. For this simple implementation, we'll assume deterministic call
   // order.
-  std::vector<Rectangle> previousFrameBounds;
-  std::vector<Rectangle> currentFrameBounds;
+  std::map<int, Rectangle> previousFrameBounds;
+  std::map<int, Rectangle> currentFrameBounds;
   std::map<int, ScrollContainerState> scrollStates;
 
   Impl() {
@@ -67,6 +73,7 @@ struct Layout::Impl {
     scrollStack.clear();
     currentFrameBounds.clear();
     currentNodeId = 0;
+    idOffset = 0; // Default to 0, call SetIdOffset after Begin if needed
 
     // Create root
     root = YGNodeNew();
@@ -75,11 +82,17 @@ struct Layout::Impl {
 
     // Default root style?
     YGNodeStyleSetFlexDirection(root, YGFlexDirectionColumn);
+    YGNodeSetContext(root, (void*)(intptr_t)0);
 
     nodeStack.push_back(root);
+    nodeIsScrollContainer.push_back(false);
 
     // Store root bounds as first entry
-    currentFrameBounds.push_back(rootBounds);
+    // NOTE: Begin is usually called for the root, so idOffset might be 0, 
+    // but if we support nested Begin calls or offset roots, we should use it.
+    // However, idOffset is usually set AFTER Begin. 
+    // If we assume Begin resets everything, we use 0.
+    currentFrameBounds[0] = rootBounds; 
     currentNodeId++;
   }
 
@@ -220,6 +233,8 @@ static void ApplyStyle(YGNodeRef node, LayoutStyle style) {
 Rectangle Layout::BeginContainer(LayoutStyle style) {
   YGNodeRef node = YGNodeNew();
   ApplyStyle(node, style);
+  // Store idOffset in context for retrieval during traversal
+  YGNodeSetContext(node, (void*)(intptr_t)impl_->idOffset);
 
   // Add to current parent
   if (!impl_->nodeStack.empty()) {
@@ -228,10 +243,11 @@ Rectangle Layout::BeginContainer(LayoutStyle style) {
   }
 
   impl_->nodeStack.push_back(node);
+  impl_->nodeIsScrollContainer.push_back(false);
 
   // Return bounds from previous frame
-  int id = impl_->currentNodeId++;
-  if (id < impl_->previousFrameBounds.size()) {
+  int id = impl_->currentNodeId++ + impl_->idOffset;
+  if (impl_->previousFrameBounds.count(id)) {
     return impl_->previousFrameBounds[id];
   }
   return {0, 0, 0, 0}; // Default if new
@@ -242,8 +258,23 @@ void Layout::EndContainer() {
     // Check if this container was a scroll container
     if (!impl_->nodeIsScrollContainer.empty() &&
         impl_->nodeIsScrollContainer.back()) {
-      // Pop the scroll stack
+      // End scissor mode if it was started for this scroll container
       if (!impl_->scrollStack.empty()) {
+        const ScrollContainerState& scrollState = impl_->scrollStack.back();
+        if (scrollState.scissorStarted) {
+          EndScissorMode();
+          
+          // Restore TabContent scissor if it was active (Raylib scissor doesn't stack)
+          Rectangle tabScissor = GetTabContentScissorBounds();
+          if (tabScissor.width > 0 && tabScissor.height > 0 && 
+              (tabScissor.width != GetScreenWidth() || tabScissor.height != GetScreenHeight())) {
+            // Apply DPI Scaling (HighDPI support)
+            float scaleX = (float)GetRenderWidth() / (float)GetScreenWidth();
+            float scaleY = (float)GetRenderHeight() / (float)GetScreenHeight();
+            BeginScissorMode((int)(tabScissor.x * scaleX), (int)(tabScissor.y * scaleY), 
+                             (int)(tabScissor.width * scaleX), (int)(tabScissor.height * scaleY));
+          }
+        }
         impl_->scrollStack.pop_back();
       }
     }
@@ -258,6 +289,8 @@ void Layout::EndContainer() {
 Rectangle Layout::Alloc(LayoutStyle style) {
   YGNodeRef node = YGNodeNew();
   ApplyStyle(node, style);
+  // Store idOffset in context for retrieval during traversal
+  YGNodeSetContext(node, (void*)(intptr_t)impl_->idOffset);
 
   if (!impl_->nodeStack.empty()) {
     YGNodeRef parent = impl_->nodeStack.back();
@@ -265,20 +298,41 @@ Rectangle Layout::Alloc(LayoutStyle style) {
   }
 
   // Return bounds
-  int id = impl_->currentNodeId++;
-  if (id < impl_->previousFrameBounds.size()) {
+  int id = impl_->currentNodeId++ + impl_->idOffset;
+  if (impl_->previousFrameBounds.count(id)) {
     return impl_->previousFrameBounds[id];
   }
   return {0, 0, 0, 0};
 }
 
 // Helpers
-LayoutStyle Layout::Row() { return LayoutStyle{.direction = 0}; }
-LayoutStyle Layout::Column() { return LayoutStyle{.direction = 1}; }
-LayoutStyle Layout::Flex(float grow) { return LayoutStyle{.flexGrow = grow}; }
+LayoutStyle Layout::Row() { 
+  return LayoutStyle{
+      .width = -1.0f, .height = -1.0f, 
+      .flexGrow = 0.0f, .flexShrink = 1.0f,
+      .direction = 0, .justify = 0, .align = 0, .flexWrap = 0
+  }; 
+}
+LayoutStyle Layout::Column() { 
+  return LayoutStyle{
+      .width = -1.0f, .height = -1.0f, 
+      .flexGrow = 0.0f, .flexShrink = 1.0f,
+      .direction = 1, .justify = 0, .align = 0, .flexWrap = 0
+  }; 
+}
+LayoutStyle Layout::Flex(float grow) { 
+  return LayoutStyle{
+      .width = -1.0f, .height = -1.0f, 
+      .flexGrow = grow, .flexShrink = 1.0f,
+      .direction = 1, .justify = 0, .align = 0, .flexWrap = 0
+  }; 
+}
 LayoutStyle Layout::Fixed(float width, float height) {
   return LayoutStyle{
-      .width = width, .height = height, .flexGrow = 0, .flexShrink = 0};
+      .width = width, .height = height, 
+      .flexGrow = 0.0f, .flexShrink = 0.0f, 
+      .direction = 1, .justify = 0, .align = 0, .flexWrap = 0
+  };
 }
 
 } // namespace raym3
@@ -318,8 +372,9 @@ void Layout::End() {
     float absX = x + left;
     float absY = y + top;
 
-    int currentIdx = idx++;
-    impl_->currentFrameBounds.push_back({absX, absY, width, height});
+    int offset = (int)(intptr_t)YGNodeGetContext(node);
+    int currentIdx = idx++ + offset;
+    impl_->currentFrameBounds[currentIdx] = {absX, absY, width, height};
 
     uint32_t count = YGNodeGetChildCount(node); // Moved declaration up
 
@@ -395,6 +450,8 @@ Rectangle Layout::BeginScrollContainer(LayoutStyle style, bool scrollX,
   // Create the container node
   YGNodeRef node = YGNodeNew();
   ApplyStyle(node, style);
+  // Store idOffset in context for retrieval during traversal
+  YGNodeSetContext(node, (void*)(intptr_t)impl_->idOffset);
 
   // For scroll containers, we need to allow content to overflow
   // So we don't constrain the height (let children determine it)
@@ -408,20 +465,24 @@ Rectangle Layout::BeginScrollContainer(LayoutStyle style, bool scrollX,
   }
 
   impl_->nodeStack.push_back(node);
-  impl_->nodeIsScrollContainer.push_back(true);
+  // Determine ID for this scroll container
+  int id = impl_->currentNodeId++ + impl_->idOffset;
 
-  // Get bounds from previous frame
-  int id = impl_->currentNodeId++;
+  // Get bounds from previous frame (use map lookup, not vector indexing)
   Rectangle bounds = {0, 0, 0, 0};
-  if (id < impl_->previousFrameBounds.size()) {
-    bounds = impl_->previousFrameBounds[id];
+  auto it = impl_->previousFrameBounds.find(id);
+  if (it != impl_->previousFrameBounds.end()) {
+    bounds = it->second;
   }
 
-  // If bounds are invalid (first frame), use screen bounds as fallback
-  // This ensures scissor mode is always set up, and bounds will be corrected on
-  // next frame
-  if (bounds.width <= 0 || bounds.height <= 0) {
-    bounds = {0, 0, (float)GetScreenWidth(), (float)GetScreenHeight()};
+  impl_->nodeIsScrollContainer.push_back(true);
+
+  // Check if bounds are valid
+  bool validBounds = (bounds.width > 0 && bounds.height > 0);
+  if (!validBounds) {
+    // Use minimal placeholder bounds on first frame
+    // Bounds will be corrected on next frame when layout is calculated
+    bounds = {0, 0, 1, 1};
   }
 
   // Setup scroll state
@@ -438,78 +499,101 @@ Rectangle Layout::BeginScrollContainer(LayoutStyle style, bool scrollX,
     scrollState.dragStart = impl_->scrollStates[id].dragStart;
   }
 
-  // Handle input
-  Vector2 mousePos = GetMousePosition();
-  bool mouseInBounds = CheckCollisionPointRec(mousePos, bounds);
+  // Only handle input if we have valid bounds
+  if (validBounds) {
+    // Handle input
+    Vector2 mousePos = GetMousePosition();
+    bool mouseInBounds = CheckCollisionPointRec(mousePos, bounds);
 
 #if RAYM3_USE_INPUT_LAYERS
-  // Use input capture to ensure drags must start in bounds
-  bool canProcessInput = InputLayerManager::BeginInputCapture(bounds, true);
-  bool isHovered = canProcessInput && mouseInBounds;
+    // Use input capture to ensure drags must start in bounds
+    bool canProcessInput = InputLayerManager::BeginInputCapture(bounds, true);
+    bool isHovered = canProcessInput && mouseInBounds;
 #else
-  bool isHovered = mouseInBounds;
+    bool isHovered = mouseInBounds;
 #endif
 
-  // Mouse wheel scrolling (passive input - works regardless of input capture)
-  // Only check if mouse is in bounds
-  if (mouseInBounds) {
-    float wheelMove = GetMouseWheelMove();
-    if (wheelMove != 0) {
-      if (scrollY) {
-        scrollState.scrollOffset.y += wheelMove * 20.0f;
-      } else if (scrollX) {
-        scrollState.scrollOffset.x += wheelMove * 20.0f;
+    // Mouse wheel scrolling (passive input - works regardless of input capture)
+    // Only check if mouse is in bounds
+    if (mouseInBounds) {
+      float wheelMove = GetMouseWheelMove();
+      if (wheelMove != 0) {
+        if (scrollY) {
+          scrollState.scrollOffset.y += wheelMove * 20.0f;
+        } else if (scrollX) {
+          scrollState.scrollOffset.x += wheelMove * 20.0f;
+        }
       }
     }
+
+    // Drag scrolling (requires input capture)
+    if (isHovered) {
+      // Drag scrolling (only if drag started in bounds)
+#if RAYM3_USE_INPUT_LAYERS
+      if (canProcessInput && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+#else
+      if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+#endif
+        scrollState.isDragging = true;
+        scrollState.dragStart = mousePos;
+      }
+    }
+
+    if (scrollState.isDragging) {
+#if RAYM3_USE_INPUT_LAYERS
+      // Continue dragging only if we captured the input
+      if (canProcessInput && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+#else
+      if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+#endif
+        Vector2 delta = {mousePos.x - scrollState.dragStart.x,
+                         mousePos.y - scrollState.dragStart.y};
+        if (scrollX)
+          scrollState.scrollOffset.x += delta.x;
+        if (scrollY)
+          scrollState.scrollOffset.y += delta.y;
+        scrollState.dragStart = mousePos;
+      } else {
+        scrollState.isDragging = false;
+      }
+    }
+
+    // Clamp scroll offset (will be updated after layout calculation with actual
+    // content size)
+    if (scrollState.scrollOffset.x > 0)
+      scrollState.scrollOffset.x = 0;
+    if (scrollState.scrollOffset.y > 0)
+      scrollState.scrollOffset.y = 0;
   }
 
-  // Drag scrolling (requires input capture)
-  if (isHovered) {
-    // Drag scrolling (only if drag started in bounds)
-#if RAYM3_USE_INPUT_LAYERS
-    if (canProcessInput && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-#else
-    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-#endif
-      scrollState.isDragging = true;
-      scrollState.dragStart = mousePos;
+  // Only begin scissor mode if we have valid bounds
+  // Intersect with parent scissor (e.g., TabContent) to avoid conflicts
+  if (validBounds && bounds.width > 0 && bounds.height > 0) {
+    // Get TabContent scissor bounds if it's active
+    Rectangle parentScissor = GetTabContentScissorBounds();
+    
+    // Calculate intersection with parent scissor
+    float left = std::max(bounds.x, parentScissor.x);
+    float top = std::max(bounds.y, parentScissor.y);
+    float right = std::min(bounds.x + bounds.width, parentScissor.x + parentScissor.width);
+    float bottom = std::min(bounds.y + bounds.height, parentScissor.y + parentScissor.height);
+    
+    if (right > left && bottom > top) {
+      Rectangle scissorBounds = {left, top, right - left, bottom - top};
+
+      // Raylib's BeginScissorMode expects physical pixels if the backing store is scaled (HighDPI)
+      float scaleX = (float)GetRenderWidth() / (float)GetScreenWidth();
+      float scaleY = (float)GetRenderHeight() / (float)GetScreenHeight();
+
+      BeginScissorMode((int)(scissorBounds.x * scaleX), (int)(scissorBounds.y * scaleY), 
+                       (int)(scissorBounds.width * scaleX), (int)(scissorBounds.height * scaleY));
+      scrollState.scissorStarted = true;
+      scrollState.bounds = scissorBounds; // Store intersected bounds (Logical)
     }
   }
-
-  if (scrollState.isDragging) {
-#if RAYM3_USE_INPUT_LAYERS
-    // Continue dragging only if we captured the input
-    if (canProcessInput && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-#else
-    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-#endif
-      Vector2 delta = {mousePos.x - scrollState.dragStart.x,
-                       mousePos.y - scrollState.dragStart.y};
-      if (scrollX)
-        scrollState.scrollOffset.x += delta.x;
-      if (scrollY)
-        scrollState.scrollOffset.y += delta.y;
-      scrollState.dragStart = mousePos;
-    } else {
-      scrollState.isDragging = false;
-    }
-  }
-
-  // Clamp scroll offset (will be updated after layout calculation with actual
-  // content size)
-  if (scrollState.scrollOffset.x > 0)
-    scrollState.scrollOffset.x = 0;
-  if (scrollState.scrollOffset.y > 0)
-    scrollState.scrollOffset.y = 0;
 
   impl_->scrollStack.push_back(scrollState);
   impl_->scrollStates[id] = scrollState;
-
-  // Begin scissor mode for clipping
-  if (bounds.width > 0 && bounds.height > 0) {
-    BeginScissorMode((int)bounds.x, (int)bounds.y, (int)bounds.width,
-                     (int)bounds.height);
-  }
 
   return bounds;
 }
@@ -554,12 +638,10 @@ void Layout::DrawDebug() {
   Vector2 mousePos = GetMousePosition();
 
   // Iterate all bounds to draw them
-  for (size_t i = 0; i < impl_->currentFrameBounds.size(); ++i) {
-    Rectangle rect = impl_->currentFrameBounds[i];
-
+  for (auto& [id, rect] : impl_->currentFrameBounds) {
     // Generate distinct color based on index
     // Using prime number steps to distribute colors across the hue spectrum
-    float hue = (float)((i * 67) % 360);
+    float hue = (float)((abs(id) * 67) % 360);
     Color baseColor = ColorFromHSV(hue, 0.8f, 0.9f);
 
     bool isHovered = CheckCollisionPointRec(mousePos, rect);
@@ -591,7 +673,48 @@ void Layout::DrawDebug() {
 void Layout::RegisterDebugRect(Rectangle rect) {
   if (!impl_)
     return;
-  impl_->currentFrameBounds.push_back(rect);
+  // Use negative IDs for debug rects to avoid collision
+  // (We don't really track them frame-to-frame but we need to store them)
+  int debugId = -1 - (int)impl_->currentFrameBounds.size(); 
+  impl_->currentFrameBounds[debugId] = rect;
+}
+
+void Layout::InvalidatePreviousFrame() {
+  if (!impl_)
+    return;
+  impl_->previousFrameBounds.clear();
+  impl_->scrollStates.clear();
+}
+
+void Layout::SetIdOffset(int offset) {
+  if (impl_) {
+    impl_->idOffset = offset;
+  }
+}
+
+Rectangle Layout::GetActiveScissorBounds() {
+  // Start with TabContent scissor bounds (returns screen bounds if not clipping)
+  Rectangle result = GetTabContentScissorBounds();
+  
+  // If we have an active scroll container, intersect with its bounds
+  if (impl_ && !impl_->scrollStack.empty()) {
+    Rectangle scrollBounds = impl_->scrollStack.back().bounds;
+    
+    // Calculate intersection
+    float left = std::max(result.x, scrollBounds.x);
+    float top = std::max(result.y, scrollBounds.y);
+    float right = std::min(result.x + result.width, scrollBounds.x + scrollBounds.width);
+    float bottom = std::min(result.y + result.height, scrollBounds.y + scrollBounds.height);
+    
+    if (right > left && bottom > top) {
+      result = {left, top, right - left, bottom - top};
+    } else {
+      // No intersection, return empty rect
+      result = {0, 0, 0, 0};
+    }
+  }
+  
+  return result;
 }
 
 } // namespace raym3
@@ -634,6 +757,8 @@ LayoutStyle Layout::Fixed(float width, float height) {
   return LayoutStyle{
       .width = width, .height = height, .flexGrow = 0, .flexShrink = 0};
 }
+
+void Layout::InvalidatePreviousFrame() {}
 
 } // namespace raym3
 

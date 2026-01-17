@@ -76,6 +76,12 @@ public:
   static void DrawDebug();
   // Register manual layout bounds for debug visualization
   static void RegisterDebugRect(Rectangle rect);
+  
+  // Invalidate previous frame bounds (call on tab switch to force fresh layout)
+  static void InvalidatePreviousFrame();
+  
+  // Set ID offset for state isolation (e.g. active tab index * 1000)
+  static void SetIdOffset(int offset);
 
 private:
   struct Impl;

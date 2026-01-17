@@ -1,4 +1,6 @@
 #include "raym3/components/View3D.h"
+#include "raym3/layout/Layout.h"
+#include <algorithm>
 #include <raylib.h>
 #include <rlgl.h>
 
@@ -54,6 +56,12 @@ void main()
     // 1.0 - ... gives 1->0 transition
     float alpha = 1.0 - smoothstep(-0.5, 0.5, d);
     
+    // Discard fragments that are clearly outside the bounds to prevent overdraw
+    // This ensures the viewport doesn't render outside its allocated area
+    if (alpha <= 0.0) {
+        discard;
+    }
+    
     finalColor = texColor * colDiffuse;
     finalColor.a *= alpha;
 }
@@ -87,6 +95,11 @@ void main()
     float d = length(max(abs(p) - b, 0.0)) - r;
     
     float alpha = 1.0 - smoothstep(-0.5, 0.5, d);
+    
+    // Discard fragments that are clearly outside the bounds to prevent overdraw
+    if (alpha <= 0.0) {
+        discard;
+    }
     
     gl_FragColor = texColor * colDiffuse;
     gl_FragColor.a *= alpha;
@@ -159,7 +172,8 @@ int View3D::Render(Rectangle bounds, std::function<void()> renderCallback) {
   int width = (int)bounds.width;
   int height = (int)bounds.height;
 
-  if (width <= 0 || height <= 0) {
+  // Early return if bounds are invalid - don't render or register input
+  if (width <= 0 || height <= 0 || bounds.x < 0 || bounds.y < 0) {
     layerId_ = -1;
     return -1;
   }
@@ -169,8 +183,11 @@ int View3D::Render(Rectangle bounds, std::function<void()> renderCallback) {
   // The caller (EditorLayout) manages layers, View3D just registers on current layer
   layerId_ = InputLayerManager::GetCurrentLayerId();
   
-  // Register viewport as blocking region on current layer (like Card does)
-  InputLayerManager::RegisterBlockingRegion(bounds, true);
+  // Only register viewport as blocking region if bounds are valid
+  // This prevents the viewport from blocking input when it's hidden/shrunk
+  if (bounds.width > 0 && bounds.height > 0) {
+    InputLayerManager::RegisterBlockingRegion(bounds, true);
+  }
 #else
   layerId_ = -1;
 #endif
@@ -178,6 +195,10 @@ int View3D::Render(Rectangle bounds, std::function<void()> renderCallback) {
   EnsureTextureSize(width, height);
 
   // 1. Render scene to texture
+  // IMPORTANT: We must disable any active scissor (from UI layout) because
+  // it uses Screen Coordinates, which don't map correctly to FBO Coordinates.
+  EndScissorMode();
+
   BeginTextureMode(target_);
   ClearBackground(BLANK); // Clear with transparent
   if (renderCallback) {
@@ -186,8 +207,43 @@ int View3D::Render(Rectangle bounds, std::function<void()> renderCallback) {
   EndTextureMode();
 
   // 2. Draw texture with rounded corner shader
+  // Apply scissor to ensure viewport stays within its bounds
+  // This works in conjunction with TabContent scissor (they intersect)
+  // Double-check bounds are still valid before drawing (defensive check)
+  if (bounds.width <= 0 || bounds.height <= 0) {
+    return layerId_;
+  }
+  
+  // Enable scissor mode to clip viewport to its exact bounds
+  // Intersect with parent scissor (TabContent, scroll containers) to prevent overflow
+  Rectangle parentScissor = Layout::GetActiveScissorBounds();
+  float left = std::max(bounds.x, parentScissor.x);
+  float top = std::max(bounds.y, parentScissor.y);
+  float right = std::min(bounds.x + bounds.width, parentScissor.x + parentScissor.width);
+  float bottom = std::min(bounds.y + bounds.height, parentScissor.y + parentScissor.height);
+  
+  // Apply DPI scaling for Scissor Mode
+  // Raylib's BeginScissorMode expects physical pixels if the backing store is scaled
+  float scaleX = (float)GetRenderWidth() / (float)GetScreenWidth();
+  float scaleY = (float)GetRenderHeight() / (float)GetScreenHeight();
+  
+  bool hasValidScissor = (right > left && bottom > top);
+  if (!hasValidScissor) {
+    // If we have no valid visible area (e.g. scrolled off or empty bounds), don't render
+    // This prevents drawing the full texture over everything if bounds are 0,0 or Layout failed
+    layerId_ = -1;
+    return -1;
+  }
+
+  // Use scaled coordinates for Scissor
+  BeginScissorMode((int)(left * scaleX), (int)(top * scaleY), 
+                  (int)((right - left) * scaleX), (int)((bottom - top) * scaleY));
+  
   BeginShaderMode(shader_);
 
+  // Pass texture resolution to shader (shader works in texture coordinate space)
+  // The shader calculates rounded corners based on texture dimensions
+  // Scissor mode ensures the viewport doesn't draw outside its screen bounds
   float resolution[2] = {(float)width, (float)height};
   SetShaderValue(shader_, shaderLocResolution_, resolution,
                  SHADER_UNIFORM_VEC2);
@@ -203,6 +259,9 @@ int View3D::Render(Rectangle bounds, std::function<void()> renderCallback) {
   DrawTexturePro(target_.texture, source, dest, origin, 0.0f, WHITE);
 
   EndShaderMode();
+  
+  // End scissor mode after drawing (only if we started it)
+  EndScissorMode();
 
   return layerId_;
 }

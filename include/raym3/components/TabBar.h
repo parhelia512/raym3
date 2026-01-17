@@ -35,6 +35,10 @@ struct TabBarOptions {
   // Behavior
   bool showCloseOnHover = true;      // Close button only on hover
   bool showDividers = true;          // Dividers between tabs
+
+  // Optional "Add Tab" button
+  std::function<void()> onAddTab = nullptr;
+  const char* addTabIcon = "add";    // Default icon
 };
 
 class TabBarComponent {
@@ -60,10 +64,13 @@ private:
 //-----------------------------------------------------------------------------
 
 // Begin a tab content container (matches active tab background)
-void TabContentBegin(Rectangle bounds, Color backgroundColor);
+void TabContentBegin(Rectangle bounds, Color backgroundColor, bool clip = true);
 
 // End tab content container
 void TabContentEnd();
+
+// Get current TabContent scissor bounds (returns screen bounds if not clipping)
+Rectangle GetTabContentScissorBounds();
 
 //-----------------------------------------------------------------------------
 // Convenience API

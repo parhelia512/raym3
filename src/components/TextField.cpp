@@ -514,14 +514,7 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
     Color bgColor = (options.backgroundColor.a > 0)
                         ? options.backgroundColor
                         : scheme.surfaceContainerHighest;
-    // Subtler top rounding, flat bottom corners
-    float topRadius = 4.0f;
-    Renderer::DrawRoundedRectangle(inputBounds, topRadius, bgColor);
-    // Overlap with a rectangle on the bottom half to flatten corners
-    Rectangle bottomHalf = {inputBounds.x,
-                            inputBounds.y + inputBounds.height / 2.0f,
-                            inputBounds.width, inputBounds.height / 2.0f};
-    DrawRectangleRec(bottomHalf, bgColor);
+    Renderer::DrawRoundedRectangle(inputBounds, cornerRadius, bgColor);
   }
 
   Color outlineColor =
@@ -535,16 +528,9 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
   }
 
   if (options.drawOutline) {
-    if (options.variant == TextFieldVariant::Outlined) {
-      Renderer::DrawRoundedRectangleEx(inputBounds, cornerRadius, outlineColor,
-                                       outlineWidth);
-    } else {
-      // Filled bottom line
-      Rectangle bottomLine = {inputBounds.x,
-                              inputBounds.y + inputBounds.height - 2,
-                              inputBounds.width, 2};
-      DrawRectangleRec(bottomLine, outlineColor);
-    }
+    // Both Driven and Outlined use full rounded border
+    Renderer::DrawRoundedRectangleEx(inputBounds, cornerRadius, outlineColor,
+                                     outlineWidth);
   } else {
     Renderer::DrawStateLayer(inputBounds, cornerRadius,
                              ColorAlpha(scheme.surface, 0.0f), state);

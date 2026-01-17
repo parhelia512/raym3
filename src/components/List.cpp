@@ -5,6 +5,8 @@
 #include "raym3/rendering/SvgRenderer.h"
 #include "raym3/styles/Theme.h"
 #include <raylib.h>
+#include <raymath.h>
+#include <vector>
 
 #if RAYM3_USE_INPUT_LAYERS
 #include "raym3/input/InputLayer.h"
@@ -13,9 +15,20 @@
 namespace raym3 {
 
 static ListSelectionCallback s_selectionCallback = nullptr;
+static ListDragCallback s_dragCallback = nullptr;
+
+// Drag state
+static int s_draggingIndex = -1;
+static int s_dragTargetIndex = -1;
+static bool s_dragStarted = false;
+static Vector2 s_dragStartPos = {0, 0};
+
+bool ListIsDragging() { return s_draggingIndex != -1; }
+int ListGetDragSourceIndex() { return s_draggingIndex; }
+int ListGetDragTargetIndex() { return s_dragTargetIndex; }
 
 static float RenderListItems(Rectangle bounds, ListItem *items, int itemCount,
-                             int depth, float currentY) {
+                             int depth, float currentY, std::vector<Rectangle>* itemBoundsOut = nullptr) {
   if (!items || itemCount <= 0)
     return currentY;
 
@@ -32,6 +45,11 @@ static float RenderListItems(Rectangle bounds, ListItem *items, int itemCount,
     ListItem &item = items[i];
 
     Rectangle itemBounds = {bounds.x, currentY, bounds.width, itemHeight};
+    
+    // Store bounds for drag target calculation
+    if (itemBoundsOut) {
+      itemBoundsOut->push_back(itemBounds);
+    }
 
     bool isVisible = Layout::IsRectVisibleInScrollContainer(itemBounds);
 
@@ -57,26 +75,49 @@ static float RenderListItems(Rectangle bounds, ListItem *items, int itemCount,
       state = ComponentState::Hovered;
     }
 
-    if (isVisible) {
-      if (item.selected) {
-        Renderer::DrawRoundedRectangle(itemBounds,
-                                       Theme::GetShapeTokens().cornerSmall,
-                                       scheme.secondaryContainer);
-      } else if (item.backgroundColor.a > 0) {
-        Renderer::DrawRoundedRectangle(itemBounds,
-                                       Theme::GetShapeTokens().cornerSmall,
-                                       item.backgroundColor);
+    // Drag start detection
+    if (item.enableDrag && isHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+      s_dragStartPos = mousePos;
+      s_dragStarted = false;
+    }
+    
+    // Check if drag should start (moved enough distance)
+    if (item.enableDrag && s_draggingIndex == -1 && IsMouseButtonDown(MOUSE_BUTTON_LEFT) && isHovered) {
+      float dragDist = Vector2Distance(mousePos, s_dragStartPos);
+      if (dragDist > 5.0f) {
+        s_draggingIndex = i;
+        s_dragStarted = true;
       }
+    }
 
-      if (!item.disabled) {
-        Color stateBaseColor =
-            item.selected ? scheme.onSecondaryContainer : scheme.onSurface;
-        if (item.textColor.a > 0)
-          stateBaseColor = item.textColor;
+    if (isVisible) {
+      // Skip rendering the dragged item at its original position (show ghost instead)
+      bool isDragSource = (s_draggingIndex == i);
+      
+      if (isDragSource) {
+        // Draw semi-transparent version
+        DrawRectangleRec(itemBounds, ColorAlpha(scheme.surfaceContainerHigh, 0.5f));
+      } else {
+        if (item.selected) {
+          Renderer::DrawRoundedRectangle(itemBounds,
+                                         Theme::GetShapeTokens().cornerSmall,
+                                         scheme.secondaryContainer);
+        } else if (item.backgroundColor.a > 0) {
+          Renderer::DrawRoundedRectangle(itemBounds,
+                                         Theme::GetShapeTokens().cornerSmall,
+                                         item.backgroundColor);
+        }
 
-        Renderer::DrawStateLayer(itemBounds,
-                                 Theme::GetShapeTokens().cornerSmall,
-                                 stateBaseColor, state);
+        if (!item.disabled) {
+          Color stateBaseColor =
+              item.selected ? scheme.onSecondaryContainer : scheme.onSurface;
+          if (item.textColor.a > 0)
+            stateBaseColor = item.textColor;
+
+          Renderer::DrawStateLayer(itemBounds,
+                                   Theme::GetShapeTokens().cornerSmall,
+                                   stateBaseColor, state);
+        }
       }
 
       float contentX = itemBounds.x + basePadding + (depth * indentPerLevel);
@@ -89,6 +130,10 @@ static float RenderListItems(Rectangle bounds, ListItem *items, int itemCount,
       } else {
         if (item.textColor.a > 0)
           contentColor = item.textColor;
+      }
+      
+      if (isDragSource) {
+        contentColor = ColorAlpha(contentColor, 0.5f);
       }
 
       if (item.leadingIcon) {
@@ -156,7 +201,8 @@ static float RenderListItems(Rectangle bounds, ListItem *items, int itemCount,
       }
     }
 
-    if (isClicked && !item.disabled) {
+    // Don't process click if dragging
+    if (isClicked && !item.disabled && s_draggingIndex == -1) {
 #if RAYM3_USE_INPUT_LAYERS
       InputLayerManager::ConsumeInput();
 #endif
@@ -178,24 +224,70 @@ static float RenderListItems(Rectangle bounds, ListItem *items, int itemCount,
     // Recursively render children if expanded
     if (item.expanded && item.children && item.childCount > 0) {
       currentY = RenderListItems(bounds, item.children, item.childCount,
-                                 depth + 1, currentY);
+                                 depth + 1, currentY, nullptr);
     }
   }
   return currentY;
 }
 
 void List(Rectangle bounds, ListItem *items, int itemCount, float *outHeight,
-          ListSelectionCallback onSelectionChange) {
+          ListSelectionCallback onSelectionChange, ListDragCallback onDragReorder) {
 #if RAYM3_USE_INPUT_LAYERS
   InputLayerManager::RegisterBlockingRegion(bounds, true);
 #endif
 
   s_selectionCallback = onSelectionChange;
-  float endY = RenderListItems(bounds, items, itemCount, 0, bounds.y);
+  s_dragCallback = onDragReorder;
+  
+  std::vector<Rectangle> itemBounds;
+  float endY = RenderListItems(bounds, items, itemCount, 0, bounds.y, &itemBounds);
+  
+  // Handle drag target calculation and ghost line
+  if (s_draggingIndex != -1) {
+    Vector2 mousePos = GetMousePosition();
+    ColorScheme &scheme = Theme::GetColorScheme();
+    
+    // Find target index based on mouse Y
+    s_dragTargetIndex = -1;
+    for (int i = 0; i < (int)itemBounds.size(); i++) {
+      float midY = itemBounds[i].y + itemBounds[i].height / 2.0f;
+      if (mousePos.y < midY) {
+        s_dragTargetIndex = i;
+        break;
+      }
+    }
+    if (s_dragTargetIndex == -1) {
+      s_dragTargetIndex = itemCount; // Insert at end
+    }
+    
+    // Draw ghost line at target position
+    float lineY = bounds.y;
+    if (s_dragTargetIndex < (int)itemBounds.size()) {
+      lineY = itemBounds[s_dragTargetIndex].y;
+    } else if (!itemBounds.empty()) {
+      lineY = itemBounds.back().y + itemBounds.back().height;
+    }
+    
+    DrawRectangle((int)bounds.x, (int)lineY - 2, (int)bounds.width, 4, scheme.primary);
+    
+    // Handle drop
+    if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+      if (s_dragTargetIndex != s_draggingIndex && s_dragTargetIndex != s_draggingIndex + 1) {
+        if (s_dragCallback) {
+          s_dragCallback(s_draggingIndex, s_dragTargetIndex);
+        }
+      }
+      s_draggingIndex = -1;
+      s_dragTargetIndex = -1;
+    }
+  }
+  
   if (outHeight) {
     *outHeight = endY - bounds.y;
   }
   s_selectionCallback = nullptr;
+  s_dragCallback = nullptr;
 }
 
 } // namespace raym3
+

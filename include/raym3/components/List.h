@@ -14,14 +14,25 @@ struct ListItem {
   bool expanded = false;
   bool selected = false;
   bool disabled = false;
+  bool enableDrag = false;  // Enable drag sorting for this item
   Color textColor = BLANK;
   Color iconColor = BLANK;
   Color backgroundColor = BLANK;
+  void* userData = nullptr; // User data for callbacks
 };
 
 typedef std::function<void(ListItem*, int)> ListSelectionCallback;
+typedef std::function<void(int fromIndex, int toIndex)> ListDragCallback;
 
 void List(Rectangle bounds, ListItem *items, int itemCount,
-          float *outHeight = nullptr, ListSelectionCallback onSelectionChange = nullptr);
+          float *outHeight = nullptr, 
+          ListSelectionCallback onSelectionChange = nullptr,
+          ListDragCallback onDragReorder = nullptr);
+
+// Get current drag state (for external rendering)
+bool ListIsDragging();
+int ListGetDragSourceIndex();
+int ListGetDragTargetIndex();
 
 } // namespace raym3
+
