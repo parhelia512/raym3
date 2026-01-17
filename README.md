@@ -409,6 +409,22 @@ raym3::Layout::DrawDebug();
 - Use it to verify padding, gaps, and alignment are working correctly
 - Toggle it on/off at runtime to compare the visual layout with the debug overlay
 
+### Multi-Tab / MDI Layout State Isolation
+
+When building tabbed interfaces or MDI (Multiple Document Interface) applications, each tab needs its own isolated layout state. Use these methods to prevent layout bleeding between tabs:
+
+```cpp
+// Set a unique ID offset for each tab (e.g., tabIndex * 1000)
+raym3::Layout::SetIdOffset(activeTabIndex * 1000);
+
+// When switching tabs, invalidate previous frame bounds to force fresh layout
+raym3::Layout::InvalidatePreviousFrame();
+```
+
+**When to use:**
+- Call `SetIdOffset()` before `Layout::Begin()` when rendering each tab's content
+- Call `InvalidatePreviousFrame()` when switching between tabs to reset layout state
+
 ## Interaction Model
 
 - **Click on Release**: Components (Buttons, etc.) trigger their primary action on **mouse release** while hovering, rather than on press. This matches standard UI behavior and allows users to cancel a click by moving the mouse away before releasing.
