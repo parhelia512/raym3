@@ -95,9 +95,14 @@ Texture2D SvgRenderer::LoadSvgTexture(const char *name, IconVariation variation,
 #if RAYM3_EMBED_RESOURCES
   std::string folder = GetVariationFolder(variation);
   std::string iconKey = folder + "/" + name;
-  auto it = embedded_icons.find(iconKey);
-  if (it != embedded_icons.end()) {
-    loaded = model.LoadFromString(it->second.c_str());
+  
+  // Linear search in static array (simpler/safer than static map init).
+  // Optimization: Could use binary search if sorted, or build map once lazily.
+  for (const auto* asset = embedded_assets; asset->path != nullptr; ++asset) {
+      if (iconKey == asset->path) {
+          loaded = model.LoadFromString(asset->content);
+          break;
+      }
   }
 #endif
 
