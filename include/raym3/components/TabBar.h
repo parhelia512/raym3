@@ -4,18 +4,21 @@
 #include <raylib.h>
 #include <string>
 #include <vector>
+#include "raym3/types.h"
 
 namespace raym3 {
 
 enum class TabState { Default, Hover, Active, Loading };
 
 struct TabItem {
-  std::string id;                    // Unique identifier
-  std::string title;                 // Tab title (truncated if needed)
-  const char *iconName = nullptr;    // Optional favicon/icon
-  bool isLoading = false;            // Show loading spinner
-  bool isAudioPlaying = false;       // Show audio indicator
-  bool closeable = true;             // Show close button
+  std::string id;
+  std::string title;
+  const char *iconName = nullptr;
+  bool isLoading = false;
+  bool isAudioPlaying = false;
+  bool closeable = true;
+  const char *tooltip = nullptr;
+  TooltipPlacement tooltipPlacement = TooltipPlacement::Auto;
 };
 
 struct TabBarOptions {
@@ -39,6 +42,9 @@ struct TabBarOptions {
   // Optional "Add Tab" button
   std::function<void()> onAddTab = nullptr;
   const char* addTabIcon = "add";    // Default icon
+  
+  // Instance ID for independent hover tracking (use different IDs for separate TabBars)
+  int instanceId = 0;
 };
 
 class TabBarComponent {

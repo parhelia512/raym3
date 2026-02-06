@@ -24,21 +24,21 @@ raym3 is a Material Design 3 inspired immediate-mode GUI library built on raylib
 raym3 currently implements the following Material Design 3 components:
 
 ### Input Components
-- **Button** - Text, Filled, Outlined, Tonal, Elevated variants
-- **IconButton** - Buttons with Material Design icons
-- **TextField** - Single-line text input with label, password mode, input masking, undo/redo support, and automatic cursor color inversion for custom backgrounds
-- **Checkbox** - Standard checkbox with label
-- **Switch** - Toggle switch
-- **RadioButton** - Radio button with label
-- **Slider** - Continuous or discrete value slider with M3 Expressive features (tick marks, stop indicators, value display)
-- **RangeSlider** - Multi-thumb range slider for selecting value ranges
+- **Button** - Text, Filled, Outlined, Tonal, Elevated variants with keyboard activation and optional tooltips
+- **IconButton** - Buttons with Material Design icons, keyboard activation, and optional tooltips
+- **TextField** - Single-line text input with word/line navigation, drag selection, triple-click select all, Escape to revert, and I-beam cursor
+- **Checkbox** - Standard checkbox with label, keyboard activation (Space/Enter), pointer cursor, and optional tooltips
+- **Switch** - Toggle switch with keyboard activation (Space/Enter), pointer cursor, and optional tooltips
+- **RadioButton** - Radio button with label, keyboard activation (Space/Enter), pointer cursor, and optional tooltips
+- **Slider** - Value slider with keyboard navigation (Arrow/Page/Home/End), mouse wheel, focus ring, pointer/resize cursors, and optional tooltips
+- **RangeSlider** - Multi-thumb range slider with Tab key thumb cycling, keyboard navigation, focus ring, and optional tooltips
 
 ### Display Components
 - **Card** - Elevated surface container with multiple variants
 - **Dialog** - Modal dialog with customizable buttons
 - **Modal** - Full-screen modal component with backdrop and text input support
-- **Menu** - Dropdown menu with leading/trailing icons, dividers, gaps, icon-only mode, and disabled items
-- **List** - Material Design list component with expandable items, icons, and selection callbacks
+- **Menu** - Dropdown menu with leading/trailing icons, dividers, gaps, icon-only mode, disabled items, pointer cursor, and per-item tooltips
+- **List** - Material Design list component with keyboard navigation (Arrow/Page/Home/End), Shift multi-select, Ctrl+A select all, typeahead search, drag reorder, pointer cursor, and per-item tooltips
 - **SegmentedButton** - Segmented button groups
 - **ProgressIndicator** - Circular and linear progress indicators
 - **Divider** - Horizontal and vertical dividers
@@ -49,7 +49,12 @@ raym3 currently implements the following Material Design 3 components:
 - **Container** - Flexbox-based layout container (requires Yoga)
 - **View3D** - 3D viewport component
 
-**Note:** This is a partial implementation of Material Design 3. Many components from the full specification (such as AppBar, BottomNavigation, NavigationDrawer, Tabs, Chips, DataTables, Snackbars, Tooltips, FloatingActionButton, BottomSheet, Date/Time Pickers, etc.) are not yet implemented.
+### Feedback Components
+- **Tooltip** - Hover tooltips with smart timing, configurable placement, and developer-defined text
+- **Snackbar** - Temporary notification messages
+- **TabBar** - Browser-style tab bar with closeable tabs, drag reorder, icons, and tooltips
+
+**Note:** This is a partial implementation of Material Design 3. Many components from the full specification (such as AppBar, BottomNavigation, NavigationDrawer, Chips, DataTables, FloatingActionButton, BottomSheet, Date/Time Pickers, etc.) are not yet implemented.
 
 ## Quick Start
 
@@ -356,10 +361,8 @@ We're particularly interested in contributions that add more Material Design 3 c
 - AppBar/TopAppBar
 - BottomNavigation
 - NavigationDrawer
-- Tabs
 - Chips
 - DataTables
-- Tooltips
 - FloatingActionButton (FAB)
 - BottomSheet
 - Date/Time Pickers
@@ -376,7 +379,25 @@ raym3 is an independent, self-contained project. All resources (icons and fonts)
 
 **Current Status:** Partial implementation of Material Design 3 components. The library is functional and ready to use, but many components from the full Material Design 3 specification are not yet implemented.
 
-## Breaking Changes
+## Changelog
+
+### v1.3.0 - UX Overhaul & Tooltip System
+- **Buffered Cursor System**: Added `RequestCursor()` API - cursor is set once per frame in `EndFrame()` to prevent flickering when multiple components render. Components call `RequestCursor()` instead of `SetMouseCursor()` directly.
+- **Tooltip Smart Timing**: Tooltips show instantly (50ms) after the first tooltip in a session. Returns to normal delay after 2 seconds of inactivity.
+- **Tooltip Support**: Added optional `tooltip` and `tooltipPlacement` fields to `ButtonOptions`, `SliderOptions`, `RangeSliderOptions`, `IconButtonOptions`, `CheckboxOptions`, `SwitchOptions`, `RadioButtonOptions`, `ListItem`, `MenuItem`, and `TabItem`.
+- **TextField Enhancements**: Reduced horizontal padding, fade gradient for overflow text, triple-click select all, Escape to revert, Cmd+Backspace/Alt+Backspace word/line deletion, auto-scroll during drag selection, I-beam cursor on hover.
+- **Slider & RangeSlider**: Added focus management, keyboard navigation (Arrow keys with Shift 10x, Page Up/Down 20%, Home/End min/max), mouse wheel support, focus ring, pointer/resize cursors.
+- **RangeSlider**: Tab key cycles between thumbs when focused.
+- **List Component**: Added keyboard navigation (Up/Down/Home/End/Page Up/Page Down), Shift+Arrow for multi-select range, Ctrl+A select all, Escape to deselect, Enter to activate, Space to toggle, typeahead search with 500ms timeout.
+- **Menu Component**: Added pointer cursor on hover for icon-only and standard menus.
+- **TabBar**: Added tooltip support for individual tabs.
+- **Button & IconButton**: Added keyboard activation (Space/Enter) when focused, pointer cursor on hover.
+- **Checkbox, RadioButton, Switch**: Added keyboard activation (Space/Enter), pointer cursor, focus management with click-away blur.
+- **Focus Management**: All focusable components lose focus when clicking outside their bounds.
+
+### v1.2.0 - Tooltip and TabBar
+- **Tooltip Component**: New `Tooltip()` function and `TooltipManager` for deferred tooltip rendering
+- **TabBar Component**: Browser-style tab bar with closeable tabs, drag reorder, loading/audio indicators, add tab callback, and text truncation
 
 ### v1.1.0
 - **Removed Native Text Input**: The `useNativeInput` option in `TextFieldOptions` has been removed along with the `RAYM3_ENABLE_NATIVE_TEXT_INPUT` CMake option. The TextField component now provides full native-like text editing behavior (keyboard shortcuts, word/line navigation, selection, undo/redo) without requiring platform-specific backends. This simplifies cross-platform deployment and removes the Cocoa framework dependency on macOS.
@@ -429,6 +450,9 @@ raym3::Layout::InvalidatePreviousFrame();
 
 - **Click on Release**: Components (Buttons, etc.) trigger their primary action on **mouse release** while hovering, rather than on press. This matches standard UI behavior and allows users to cancel a click by moving the mouse away before releasing.
 - **Input Capture**: Drag operations (sliders, scrollbars) capture input, allowing the user to drag outside the component bounds once the gesture has started.
+- **Buffered Cursor**: Cursor changes are buffered via `RequestCursor()` during the frame and applied once in `EndFrame()`. This prevents flickering when multiple components render.
+- **Focus Management**: Interactive components track focus state. Clicking a component gives it focus; clicking away removes focus. Focused components respond to keyboard input (Space/Enter for activation, Arrow keys for navigation).
+- **Tooltip Smart Timing**: After the first tooltip is shown, subsequent tooltips appear instantly (50ms) for 2 seconds, then revert to the normal delay. This matches native OS tooltip behavior.
 
 ---
 

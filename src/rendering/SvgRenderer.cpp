@@ -1,7 +1,9 @@
 #include "raym3/rendering/SvgRenderer.h"
 #include "raym3/rendering/SvgModel.h"
 #include "raym3/config.h"
+#ifndef __EMSCRIPTEN__
 #include <filesystem>
+#endif
 #include <iostream>
 #include <vector>
 #include <cstring>
@@ -20,6 +22,10 @@ std::unordered_map<std::string, Texture2D> SvgRenderer::textureCache;
 bool SvgRenderer::autoDetected = false;
 
 static std::string DetectIconPath() {
+#ifdef __EMSCRIPTEN__
+  // On WASM with embedded resources, we don't need filesystem paths
+  return "";
+#else
   std::vector<std::string> searchPaths = {
     std::string(RAYM3_RESOURCE_DIR) + "/icons",
     std::string(RAYM3_RESOURCE_DIR),
@@ -42,6 +48,7 @@ static std::string DetectIconPath() {
   }
 
   return "";
+#endif
 }
 
 void SvgRenderer::Initialize(const char *path) {
@@ -107,6 +114,12 @@ Texture2D SvgRenderer::LoadSvgTexture(const char *name, IconVariation variation,
 #endif
 
   if (!loaded) {
+#ifdef __EMSCRIPTEN__
+    // On WASM, icons should be embedded. If not found, log and return empty.
+    std::string folder = GetVariationFolder(variation);
+    std::cerr << "Icon not found in embedded resources: " << folder << "/" << name << std::endl;
+    return {0};
+#else
     if (basePath.empty() && !autoDetected) {
       basePath = DetectIconPath();
       autoDetected = true;
@@ -125,6 +138,7 @@ Texture2D SvgRenderer::LoadSvgTexture(const char *name, IconVariation variation,
       std::cerr << "Failed to load SVG: " << fullPath << std::endl;
       return {0};
     }
+#endif
   }
 
   // Rasterize using nanosvgrast

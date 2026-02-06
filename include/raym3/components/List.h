@@ -2,6 +2,7 @@
 
 #include <raylib.h>
 #include <functional>
+#include "raym3/types.h"
 
 namespace raym3 {
 
@@ -14,11 +15,13 @@ struct ListItem {
   bool expanded = false;
   bool selected = false;
   bool disabled = false;
-  bool enableDrag = false;  // Enable drag sorting for this item
+  bool enableDrag = false;
   Color textColor = BLANK;
   Color iconColor = BLANK;
   Color backgroundColor = BLANK;
-  void* userData = nullptr; // User data for callbacks
+  void* userData = nullptr;
+  const char *tooltip = nullptr;
+  TooltipPlacement tooltipPlacement = TooltipPlacement::Auto;
 };
 
 typedef std::function<void(ListItem*, int)> ListSelectionCallback;

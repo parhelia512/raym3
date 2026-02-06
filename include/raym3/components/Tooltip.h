@@ -3,16 +3,9 @@
 #include <functional>
 #include <raylib.h>
 #include <string>
+#include "raym3/types.h"
 
 namespace raym3 {
-
-enum class TooltipPlacement {
-  Auto,  // Smart positioning to avoid window edges
-  Above,
-  Below,
-  Left,
-  Right
-};
 
 struct TooltipOptions {
   // Positioning

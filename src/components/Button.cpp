@@ -1,15 +1,20 @@
 #include "raym3/components/Button.h"
 #include "raym3/components/Dialog.h"
+#include "raym3/components/Tooltip.h"
 #include "raym3/layout/Layout.h"
 #include "raym3/rendering/Renderer.h"
 #include "raym3/styles/Theme.h"
 #include <raylib.h>
+#include <map>
 
 #if RAYM3_USE_INPUT_LAYERS
 #include "raym3/input/InputLayer.h"
 #endif
 
 namespace raym3 {
+
+static int focusedButtonId_ = -1;
+static int currentButtonId_ = 0;
 
 bool ButtonComponent::Render(const char *text, Rectangle bounds,
                              ButtonVariant variant,
@@ -43,6 +48,27 @@ bool ButtonComponent::Render(const char *text, Rectangle bounds,
   if (DialogComponent::IsActive() && !DialogComponent::IsRendering()) {
     isHovered = false;
     isPressed = false;
+  }
+  
+  int thisId = currentButtonId_++;
+  bool isFocused = (focusedButtonId_ == thisId);
+  
+  // Keyboard navigation
+  if (isHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    focusedButtonId_ = thisId;
+    isFocused = true;
+  }
+  
+  bool keyActivated = isFocused && (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER));
+  
+  if (CheckCollisionPointRec(GetMousePosition(), bounds)) {
+    RequestCursor(MOUSE_CURSOR_POINTING_HAND);
+  }
+  
+  // Lose focus when clicking away
+  if (isFocused && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !isHovered) {
+    focusedButtonId_ = -1;
+    isFocused = false;
   }
 
   ComponentState state = GetState(bounds);
@@ -122,14 +148,20 @@ bool ButtonComponent::Render(const char *text, Rectangle bounds,
                              FontWeight::Medium);
 
   // Fix: Check for release independently of current frame's "Pressed" state
-  // (which requires mouse down)
-  bool wasClicked = isHovered && IsMouseButtonReleased(MOUSE_BUTTON_LEFT);
+  bool wasClicked = (isHovered && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) || keyActivated;
 
 #if RAYM3_USE_INPUT_LAYERS
   if (isHovered || wasClicked) {
     InputLayerManager::ConsumeInput();
   }
 #endif
+
+  // Tooltip
+  if (options.tooltip && isHovered) {
+    TooltipOptions tooltipOpts;
+    tooltipOpts.placement = options.tooltipPlacement;
+    Tooltip(bounds, options.tooltip, tooltipOpts);
+  }
 
   return wasClicked;
 }

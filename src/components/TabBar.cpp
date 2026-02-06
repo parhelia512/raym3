@@ -1,6 +1,7 @@
 #include "raym3/components/TabBar.h"
 #include "raym3/components/Icon.h"
 #include "raym3/components/IconButton.h"
+#include "raym3/components/Tooltip.h"
 #include "raym3/rendering/Renderer.h"
 #include "raym3/styles/Theme.h"
 #include <algorithm>
@@ -46,9 +47,10 @@ static void DrawInvertedCorner(Vector2 position, float radius, bool right, bool 
 }
 
 //-----------------------------------------------------------------------------
-// Static state for hover tracking
+// Static state for hover tracking (per-instance)
 //-----------------------------------------------------------------------------
 static int s_hoveredTabIndex = -1;
+static int s_hoveredInstanceId = -1;
 static Rectangle s_tabContentBounds = {0, 0, 0, 0};
 static bool s_tabContentClipEnabled = false;
 
@@ -152,6 +154,13 @@ int TabBarComponent::Render(Rectangle bounds, const std::vector<TabItem> &items,
       }
   }
 
+  // Reset hover if mouse not in this TabBar's bounds or different instance
+  if (!mouseInBounds || s_hoveredInstanceId != options.instanceId) {
+    if (s_hoveredInstanceId == options.instanceId) {
+      s_hoveredTabIndex = -1;
+    }
+  }
+  
   // Check Tabs Input
   for (int i = 0; i < tabCount; i++) {
     Rectangle tabBounds = {
@@ -164,6 +173,7 @@ int TabBarComponent::Render(Rectangle bounds, const std::vector<TabItem> &items,
     bool isHovered = mouseInBounds && CheckCollisionPointRec(mousePos, tabBounds);
     if (isHovered) {
       s_hoveredTabIndex = i;
+      s_hoveredInstanceId = options.instanceId;
       
       // Close button check
       float contentX = tabBounds.x + 8.0f;
@@ -188,6 +198,9 @@ int TabBarComponent::Render(Rectangle bounds, const std::vector<TabItem> &items,
   if (closedTabIndex) *closedTabIndex = closedIdx;
   if (addTabClicked && options.onAddTab) options.onAddTab();
 
+  // Capture hover state for this instance
+  int localHoveredTabIndex = (s_hoveredInstanceId == options.instanceId) ? s_hoveredTabIndex : -1;
+  
   // Draw Function (Deferred or Immediate)
   auto drawFunc = [=]() {
       float r = options.cornerRadius;
@@ -200,7 +213,7 @@ int TabBarComponent::Render(Rectangle bounds, const std::vector<TabItem> &items,
       for (int i = 0; i < tabCount; i++) {
           if (i == selectedIndex) continue; // Skip active
           Rectangle tabBounds = {bounds.x + i * tabWidth, bounds.y, tabWidth, tabHeight};
-          if (s_hoveredTabIndex == i) {
+          if (localHoveredTabIndex == i) {
               DrawRectangleRec(tabBounds, ColorAlpha(scheme.onSurface, 0.08f));
           }
       }
@@ -232,12 +245,12 @@ int TabBarComponent::Render(Rectangle bounds, const std::vector<TabItem> &items,
           
           // --- 3. Bottom Flares (Concave Arches) ---
           Color leftMaskColor = inactiveTabColor;
-          if (selectedIndex > 0 && s_hoveredTabIndex == selectedIndex - 1) {
+          if (selectedIndex > 0 && localHoveredTabIndex == selectedIndex - 1) {
               leftMaskColor = ColorAlphaBlend(inactiveTabColor, ColorAlpha(scheme.onSurface, 0.08f), WHITE);
           }
           
           Color rightMaskColor = inactiveTabColor;
-          if (selectedIndex < tabCount - 1 && s_hoveredTabIndex == selectedIndex + 1) {
+          if (selectedIndex < tabCount - 1 && localHoveredTabIndex == selectedIndex + 1) {
               rightMaskColor = ColorAlphaBlend(inactiveTabColor, ColorAlpha(scheme.onSurface, 0.08f), WHITE);
           }
 
@@ -279,9 +292,9 @@ int TabBarComponent::Render(Rectangle bounds, const std::vector<TabItem> &items,
           std::string title = TruncateText(items[i].title, availWidth, 12.0f);
           Renderer::DrawText(title.c_str(), textPos, 12.0f, textColor, weight);
           
-          if (items[i].closeable && (isActive || s_hoveredTabIndex == i || !options.showCloseOnHover)) {
+          if (items[i].closeable && (isActive || localHoveredTabIndex == i || !options.showCloseOnHover)) {
               Rectangle closeBtn = {tabBounds.x + tabBounds.width - 8.0f - 16.0f, tabBounds.y + (tabHeight - 16.0f) / 2.0f, 16.0f, 16.0f};
-              Color closeColor = (s_hoveredTabIndex == i && CheckCollisionPointRec(GetMousePosition(), closeBtn)) ? scheme.error : textColor;
+              Color closeColor = (localHoveredTabIndex == i && CheckCollisionPointRec(GetMousePosition(), closeBtn)) ? scheme.error : textColor;
               IconComponent::Render("close", closeBtn, IconVariation::Filled, closeColor);
           }
       }
@@ -309,13 +322,13 @@ int TabBarComponent::Render(Rectangle bounds, const std::vector<TabItem> &items,
 
 void TabContentBegin(Rectangle bounds, Color backgroundColor, bool clip) {
   s_tabContentBounds = bounds;
-  s_tabContentClipEnabled = clip;
+  s_tabContentClipEnabled = clip && bounds.width > 0 && bounds.height > 0;
   
   // Draw background with top corners flat (matches tab bottom)
   DrawRectangleRec(bounds, backgroundColor);
   
   // Begin scissor for content clipping (optional)
-  if (clip) {
+  if (s_tabContentClipEnabled) {
     // Apply DPI Scaling (HighDPI support)
     float scaleX = (float)GetRenderWidth() / (float)GetScreenWidth();
     float scaleY = (float)GetRenderHeight() / (float)GetScreenHeight();

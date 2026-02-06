@@ -5,12 +5,18 @@
 
 namespace raym3 {
 
+struct IconButtonOptions {
+  const char *tooltip = nullptr;
+  TooltipPlacement tooltipPlacement = TooltipPlacement::Auto;
+};
+
 class IconButtonComponent {
 public:
   static bool Render(const char *iconName, Rectangle bounds,
                      ButtonVariant variant = ButtonVariant::Text,
                      IconVariation iconVariation = IconVariation::Filled,
-                     Color iconColorOverride = {0, 0, 0, 0});
+                     Color iconColorOverride = {0, 0, 0, 0},
+                     const IconButtonOptions* options = nullptr);
 
 private:
   static ComponentState GetState(Rectangle bounds);

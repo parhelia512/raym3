@@ -1,10 +1,12 @@
 #include "raym3/components/Switch.h"
 #include "raym3/components/Dialog.h"
+#include "raym3/components/Tooltip.h"
 #include "raym3/layout/Layout.h"
 #include "raym3/rendering/Renderer.h"
 #include "raym3/styles/Theme.h"
 #include <algorithm>
 #include <raylib.h>
+#include <map>
 
 #if RAYM3_USE_INPUT_LAYERS
 #include "raym3/input/InputLayer.h"
@@ -12,8 +14,11 @@
 
 namespace raym3 {
 
+static int focusedSwitchId_ = -1;
+static int currentSwitchId_ = 0;
+
 bool SwitchComponent::Render(const char *label, Rectangle bounds,
-                             bool *checked) {
+                             bool *checked, const SwitchOptions* options) {
   if (!checked)
     return false;
 
@@ -201,23 +206,58 @@ bool SwitchComponent::Render(const char *label, Rectangle bounds,
 
   // Interaction
   bool isVisible = Layout::IsRectVisibleInScrollContainer(bounds);
+  Vector2 mousePos = GetMousePosition();
+  
 #if RAYM3_USE_INPUT_LAYERS
   bool canProcessInput =
       isVisible && InputLayerManager::ShouldProcessMouseInput(bounds);
+  bool isHovered = canProcessInput && CheckCollisionPointRec(mousePos, bounds);
   bool clicked = canProcessInput &&
-                 CheckCollisionPointRec(GetMousePosition(), bounds) &&
+                 CheckCollisionPointRec(mousePos, bounds) &&
                  IsMouseButtonReleased(MOUSE_BUTTON_LEFT);
 #else
+  bool isHovered = isVisible && CheckCollisionPointRec(mousePos, bounds);
   bool clicked = isVisible &&
-                 CheckCollisionPointRec(GetMousePosition(), bounds) &&
+                 CheckCollisionPointRec(mousePos, bounds) &&
                  IsMouseButtonReleased(MOUSE_BUTTON_LEFT);
 #endif
+
+  int thisId = currentSwitchId_++;
+  bool isFocused = (focusedSwitchId_ == thisId);
+  
+  // Keyboard navigation
+  if (isHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    focusedSwitchId_ = thisId;
+    isFocused = true;
+  }
+  
+  if (isFocused && (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER))) {
+    clicked = true;
+  }
+  
+  if (CheckCollisionPointRec(mousePos, bounds) && !inputBlocked) {
+    RequestCursor(MOUSE_CURSOR_POINTING_HAND);
+  }
+  
+  // Lose focus when clicking away
+  if (isFocused && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !isHovered) {
+    focusedSwitchId_ = -1;
+    isFocused = false;
+  }
+
   if (!inputBlocked && clicked && state != ComponentState::Disabled) {
     *checked = !*checked;
 #if RAYM3_USE_INPUT_LAYERS
     InputLayerManager::ConsumeInput();
 #endif
     return true;
+  }
+  
+  // Tooltip
+  if (options && options->tooltip && isHovered) {
+    TooltipOptions tooltipOpts;
+    tooltipOpts.placement = options->tooltipPlacement;
+    Tooltip(bounds, options->tooltip, tooltipOpts);
   }
 
   return false;

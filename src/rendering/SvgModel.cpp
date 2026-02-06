@@ -1,5 +1,7 @@
 #include "raym3/rendering/SvgModel.h"
 #include <cstdio>
+#include <cstring>
+#include <cstdlib>
 
 #define NANOSVG_IMPLEMENTATION
 #include "external/nanosvg.h"
@@ -19,9 +21,13 @@ bool SvgModel::LoadFromFile(const char *filename) {
 
 bool SvgModel::LoadFromString(const char *data) {
   Unload();
-  char *input = const_cast<char *>(
-      data); // nsvgParse expects char*, but doesn't modify it usually
+  // nsvgParse modifies the input string, so we must make a copy
+  size_t len = strlen(data);
+  char *input = (char *)malloc(len + 1);
+  if (!input) return false;
+  memcpy(input, data, len + 1);
   image = nsvgParse(input, "px", 96.0f);
+  free(input);
   return image != nullptr;
 }
 

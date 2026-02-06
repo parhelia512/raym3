@@ -5,9 +5,14 @@
 
 namespace raym3 {
 
+struct CheckboxOptions {
+  const char *tooltip = nullptr;
+  TooltipPlacement tooltipPlacement = TooltipPlacement::Auto;
+};
+
 class CheckboxComponent {
 public:
-    static bool Render(const char* label, Rectangle bounds, bool* checked);
+    static bool Render(const char* label, Rectangle bounds, bool* checked, const CheckboxOptions* options = nullptr);
     
 private:
     static ComponentState GetState(Rectangle bounds);

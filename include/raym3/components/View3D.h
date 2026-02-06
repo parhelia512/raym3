@@ -13,8 +13,15 @@ public:
   // Render the content (usually 3D scene) into the given bounds with rounded
   // corners. The renderCallback should contain the drawing commands (e.g.,
   // BeginMode3D/EndMode3D).
+  // Optional postProcessShader: if provided (shader.id != 0), applies it as a
+  // post-process effect to the rendered scene before displaying with rounded corners.
+  // setPostProcessUniforms: if provided, called after BeginShaderMode(postProcessShader)
+  // and before DrawTexturePro so effect uniforms (resolution, time, etc.) are set
+  // while the post-process shader is active.
   // Returns the layer ID that View3D is on (for input validation)
-  int Render(Rectangle bounds, std::function<void()> renderCallback);
+  int Render(Rectangle bounds, std::function<void()> renderCallback,
+             Shader postProcessShader = {0},
+             std::function<void(int width, int height)> setPostProcessUniforms = nullptr);
 
   void SetCornerRadius(float radius);
   
@@ -37,6 +44,7 @@ public:
 
 private:
   RenderTexture2D target_ = {0};
+  RenderTexture2D postProcessTarget_ = {0};
   Shader shader_ = {0};
   float cornerRadius_ = 16.0f; // Default radius
   int shaderLocResolution_ = -1;

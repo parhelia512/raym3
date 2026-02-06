@@ -1,10 +1,12 @@
 #include "raym3/components/Slider.h"
 #include "raym3/components/Dialog.h"
 #include "raym3/components/Icon.h"
+#include "raym3/components/Tooltip.h"
 #include "raym3/rendering/Renderer.h"
 #include "raym3/styles/Theme.h"
 #include <algorithm>
 #include <cstdio>
+#include <map>
 #include <raylib.h>
 
 #if RAYM3_USE_INPUT_LAYERS
@@ -13,13 +15,29 @@
 
 namespace raym3 {
 
-// Removed anonymous namespace and its static variables.
-// Moved to static member variables of SliderComponent.
+struct SliderState {
+  bool wasFocused = false;
+  int lastActiveFrame = -1;
+};
 
 static int activeFieldId_ = -1;
 static int currentFieldId_ = 0;
+static int focusedFieldId_ = -1;
+static std::map<int, SliderState> sliderStates_;
+static int currentFrame_ = 0;
 
-void SliderComponent::ResetFieldId() { currentFieldId_ = 0; }
+void SliderComponent::ResetFieldId() { 
+  currentFieldId_ = 0;
+  currentFrame_++;
+  
+  for (auto it = sliderStates_.begin(); it != sliderStates_.end();) {
+    if (it->second.lastActiveFrame < currentFrame_ - 1) {
+      it = sliderStates_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
 
 static ComponentState GetSliderState(Rectangle bounds, Rectangle thumbRect) {
   Vector2 mousePos = GetMousePosition();
@@ -67,9 +85,10 @@ float SliderComponent::Render(Rectangle bounds, float value, float min,
   // M3 Expressive measurements
   float trackHeight = 16.0f; // M3 spec: 16dp track
   float thumbWidth = 4.0f;   // User requested hard minimum 4px
-  float thumbHeight = 44.0f; // M3 spec: 44dp touch target
+  // Make thumbHeight respect bounds.height (clamped between min usable and M3 spec)
+  float thumbHeight = std::min(44.0f, std::max(24.0f, bounds.height - 4.0f));
 
-  Rectangle trackBounds = GetTrackBounds(bounds);
+  Rectangle trackBounds = GetTrackBounds(bounds, label != nullptr);
 
   // Inset Icons Logic (MD3)
   // Icons are inside the track, not outside.
@@ -101,6 +120,10 @@ float SliderComponent::Render(Rectangle bounds, float value, float min,
   // Handle input using same logic as before...
   int fieldId = currentFieldId_++;
   bool isDraggingThis = (activeFieldId_ == fieldId);
+  bool isFocused = (focusedFieldId_ == fieldId);
+  
+  SliderState &sliderState = sliderStates_[fieldId];
+  sliderState.lastActiveFrame = currentFrame_;
 
   Vector2 mousePos = GetMousePosition();
   Rectangle hitRect = {trackBounds.x, trackBounds.y - 10, trackBounds.width,
@@ -121,6 +144,23 @@ float SliderComponent::Render(Rectangle bounds, float value, float min,
   bool mouseReleased = IsMouseButtonReleased(MOUSE_BUTTON_LEFT);
 #endif
 
+  if (isDraggingThis && mouseDown) {
+    RequestCursor(MOUSE_CURSOR_RESIZE_EW);
+  } else if (mouseOverHit) {
+    RequestCursor(MOUSE_CURSOR_POINTING_HAND);
+  }
+
+  if (mousePressed && mouseOverHit) {
+    focusedFieldId_ = fieldId;
+    isFocused = true;
+  }
+  
+  // Lose focus when clicking away
+  if (isFocused && mousePressed && !mouseOverHit) {
+    focusedFieldId_ = -1;
+    isFocused = false;
+  }
+
   if (!inputBlocked) {
     if (mousePressed && mouseOverHit) {
       activeFieldId_ = fieldId;
@@ -131,6 +171,8 @@ float SliderComponent::Render(Rectangle bounds, float value, float min,
     }
 
     if (mouseReleased && isDraggingThis) {
+      if (options.onRelease)
+        options.onRelease();
       activeFieldId_ = -1;
       isDraggingThis = false;
     }
@@ -166,6 +208,70 @@ float SliderComponent::Render(Rectangle bounds, float value, float min,
       isDraggingThis = false;
     }
   }
+  
+  // Keyboard control when focused
+  if (isFocused && !isDraggingThis && !inputBlocked) {
+    bool isCtrlDown = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+    bool isShiftDown = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+    bool isSuperDown = IsKeyDown(KEY_LEFT_SUPER) || IsKeyDown(KEY_RIGHT_SUPER);
+    bool isCmdDown = isCtrlDown || isSuperDown;
+    
+    float range = max - min;
+    float step = options.stepValue > 0.0f ? options.stepValue : (range * 0.01f);
+    if (isShiftDown) step *= 10.0f;
+    
+    bool valueChanged = false;
+    
+    // Arrow keys
+    if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_DOWN)) {
+      value = std::max(min, value - step);
+      valueChanged = true;
+    }
+    if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_UP)) {
+      value = std::min(max, value + step);
+      valueChanged = true;
+    }
+    
+    // Page Up/Down (20% of range)
+    if (IsKeyPressed(KEY_PAGE_UP)) {
+      value = std::min(max, value + range * 0.2f);
+      valueChanged = true;
+    }
+    if (IsKeyPressed(KEY_PAGE_DOWN)) {
+      value = std::max(min, value - range * 0.2f);
+      valueChanged = true;
+    }
+    
+    // Home/End
+    if (IsKeyPressed(KEY_HOME)) {
+      value = min;
+      valueChanged = true;
+    }
+    if (IsKeyPressed(KEY_END)) {
+      value = max;
+      valueChanged = true;
+    }
+    
+    // Mouse wheel when focused
+    float wheel = GetMouseWheelMove();
+    if (wheel != 0.0f && mouseOverHit) {
+      float wheelStep = step;
+      if (isCmdDown) wheelStep *= 0.1f; // Fine control
+      value += wheel * wheelStep;
+      value = std::clamp(value, min, max);
+      valueChanged = true;
+    }
+    
+    if (valueChanged) {
+      if (options.stepValue > 0.0f) {
+        value = std::round((value - min) / options.stepValue) * options.stepValue + min;
+      }
+      value = std::clamp(value, min, max);
+      normalizedValue = (value - min) / (max - min);
+      splitX = trackBounds.x + (trackBounds.width * normalizedValue);
+      thumbRect.x = splitX - thumbWidth / 2.0f;
+    }
+  }
 
   // Determine colors
   Color activeColor = options.activeTrackColor.a > 0 ? options.activeTrackColor
@@ -183,11 +289,13 @@ float SliderComponent::Render(Rectangle bounds, float value, float min,
 
   // 2. Active Track (Left side)
   if (normalizedValue > 0.0f) {
-    BeginScissorMode((int)trackBounds.x, (int)trackBounds.y,
-                     (int)(trackBounds.width * normalizedValue),
-                     (int)trackHeight);
-    Renderer::DrawRoundedRectangle(trackBounds, cornerRadius, activeColor);
-    EndScissorMode();
+    float scissorWidth = trackBounds.width * normalizedValue;
+    if (scissorWidth > 0.0f && trackHeight > 0.0f) {
+      BeginScissorMode((int)trackBounds.x, (int)trackBounds.y,
+                       (int)scissorWidth, (int)trackHeight);
+      Renderer::DrawRoundedRectangle(trackBounds, cornerRadius, activeColor);
+      EndScissorMode();
+    }
   }
 
   // Render Start Icon (Inset) if present
@@ -337,22 +445,35 @@ float SliderComponent::Render(Rectangle bounds, float value, float min,
     Renderer::DrawText(label, labelPos, 14.0f, scheme.onSurface,
                        FontWeight::Regular);
   }
+  
+  // Draw focus ring if focused
+  if (isFocused && !isDraggingThis) {
+    float focusInset = -4.0f;
+    Rectangle focusRect = {thumbRect.x + focusInset, thumbRect.y + focusInset,
+                           thumbRect.width - focusInset * 2, thumbRect.height - focusInset * 2};
+    DrawRectangleLinesEx(focusRect, 2.0f, ColorAlpha(scheme.primary, 0.5f));
+  }
+  
+  // Tooltip support
+  if (options.tooltip && (mouseOverHit || isFocused)) {
+    TooltipOptions tooltipOpts;
+    tooltipOpts.placement = options.tooltipPlacement;
+    tooltipOpts.delayMs = isFocused && !mouseOverHit ? 100.0f : 500.0f;
+    Tooltip(thumbRect, options.tooltip, tooltipOpts);
+  }
 
   return value;
 }
 
-Rectangle SliderComponent::GetTrackBounds(Rectangle bounds) {
+Rectangle SliderComponent::GetTrackBounds(Rectangle bounds, bool hasLabel) {
   float trackHeight = 16.0f; // M3 spec: 16dp track
-  float labelHeight = 20.0f; // Approximate space for label
 
-  // If label is present, track is pushed down. Logic in Render handles label
-  // drawing at top. Assuming bounds includes label space? The original code put
-  // label at bounds.y. Let's put track below label.
-
-  float yOffset = 24.0f;
+  // Only apply yOffset when a label is present
+  float yOffset = hasLabel ? 24.0f : 0.0f;
+  float availableHeight = bounds.height - yOffset;
 
   return {bounds.x,
-          bounds.y + yOffset + (bounds.height - yOffset - trackHeight) / 2.0f,
+          bounds.y + yOffset + (availableHeight - trackHeight) / 2.0f,
           bounds.width, trackHeight};
 }
 

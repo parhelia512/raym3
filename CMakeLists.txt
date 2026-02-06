@@ -216,7 +216,7 @@ if(RAYM3_EMBED_RESOURCES)
         endforeach()
         
         file(APPEND "${EMBEDDED_RESOURCES_H}" "    {nullptr, nullptr}\n};\n\n")
-        message(STATUS "Embedded ${ICON_COUNT} icon files (${USED_ICON_NAMES} icons × 5 variations)")
+        message(STATUS "Embedded ${ICON_COUNT} icon files.")
     else()
         file(APPEND "${EMBEDDED_RESOURCES_H}" "// No icons found to embed\n")
         file(APPEND "${EMBEDDED_RESOURCES_H}" "struct EmbeddedAsset { const char* path; const char* content; };\n")

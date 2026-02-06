@@ -1,5 +1,6 @@
 #include "raym3/components/List.h"
 #include "raym3/components/Icon.h"
+#include "raym3/components/Tooltip.h"
 #include "raym3/layout/Layout.h"
 #include "raym3/rendering/Renderer.h"
 #include "raym3/rendering/SvgRenderer.h"
@@ -7,6 +8,8 @@
 #include <raylib.h>
 #include <raymath.h>
 #include <vector>
+#include <string>
+#include <algorithm>
 
 #if RAYM3_USE_INPUT_LAYERS
 #include "raym3/input/InputLayer.h"
@@ -22,6 +25,13 @@ static int s_draggingIndex = -1;
 static int s_dragTargetIndex = -1;
 static bool s_dragStarted = false;
 static Vector2 s_dragStartPos = {0, 0};
+
+// Keyboard navigation state
+static int s_focusedIndex = -1;
+static int s_anchorIndex = -1;
+static std::string s_typeaheadBuffer;
+static float s_typeaheadTime = 0.0f;
+static const float kTypeaheadTimeout = 0.5f;
 
 bool ListIsDragging() { return s_draggingIndex != -1; }
 int ListGetDragSourceIndex() { return s_draggingIndex; }
@@ -65,6 +75,10 @@ static float RenderListItems(Rectangle bounds, ListItem *items, int itemCount,
 #endif
     bool isPressed = isHovered && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
     bool isClicked = isHovered && IsMouseButtonReleased(MOUSE_BUTTON_LEFT);
+    
+    if (CheckCollisionPointRec(GetMousePosition(), itemBounds) && !item.disabled) {
+      RequestCursor(MOUSE_CURSOR_POINTING_HAND);
+    }
 
     ComponentState state = ComponentState::Default;
     if (item.disabled) {
@@ -212,6 +226,13 @@ static float RenderListItems(Rectangle bounds, ListItem *items, int itemCount,
         item.selected = !item.selected;
       }
     }
+    
+    // Tooltip support
+    if (item.tooltip && isHovered) {
+      TooltipOptions tooltipOpts;
+      tooltipOpts.placement = item.tooltipPlacement;
+      Tooltip(itemBounds, item.tooltip, tooltipOpts);
+    }
 
 #if RAYM3_USE_INPUT_LAYERS
     if (isHovered || isPressed) {
@@ -238,6 +259,168 @@ void List(Rectangle bounds, ListItem *items, int itemCount, float *outHeight,
 
   s_selectionCallback = onSelectionChange;
   s_dragCallback = onDragReorder;
+  
+  // Update typeahead timeout
+  if (s_typeaheadTime > 0.0f) {
+    s_typeaheadTime -= GetFrameTime();
+    if (s_typeaheadTime <= 0.0f) {
+      s_typeaheadBuffer.clear();
+    }
+  }
+  
+  // Keyboard navigation
+  bool isCtrlDown = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+  bool isShiftDown = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+  bool isSuperDown = IsKeyDown(KEY_LEFT_SUPER) || IsKeyDown(KEY_RIGHT_SUPER);
+  bool isCmdDown = isCtrlDown || isSuperDown;
+  
+  // Initialize focus if needed
+  if (s_focusedIndex == -1 && itemCount > 0) {
+    for (int i = 0; i < itemCount; i++) {
+      if (items[i].selected) {
+        s_focusedIndex = i;
+        break;
+      }
+    }
+    if (s_focusedIndex == -1) {
+      s_focusedIndex = 0;
+    }
+  }
+  
+  // Clamp focus index
+  if (s_focusedIndex >= itemCount) s_focusedIndex = itemCount - 1;
+  if (s_focusedIndex < 0) s_focusedIndex = 0;
+  
+  // Arrow key navigation
+  if (IsKeyPressed(KEY_UP) && s_focusedIndex > 0) {
+    s_focusedIndex--;
+    if (!isShiftDown) {
+      // Clear other selections
+      for (int i = 0; i < itemCount; i++) items[i].selected = false;
+      items[s_focusedIndex].selected = true;
+      s_anchorIndex = s_focusedIndex;
+      if (onSelectionChange) onSelectionChange(&items[s_focusedIndex], s_focusedIndex);
+    } else {
+      // Extend selection
+      if (s_anchorIndex == -1) s_anchorIndex = s_focusedIndex + 1;
+      int start = std::min(s_anchorIndex, s_focusedIndex);
+      int end = std::max(s_anchorIndex, s_focusedIndex);
+      for (int i = 0; i < itemCount; i++) {
+        items[i].selected = (i >= start && i <= end);
+      }
+    }
+  }
+  
+  if (IsKeyPressed(KEY_DOWN) && s_focusedIndex < itemCount - 1) {
+    s_focusedIndex++;
+    if (!isShiftDown) {
+      for (int i = 0; i < itemCount; i++) items[i].selected = false;
+      items[s_focusedIndex].selected = true;
+      s_anchorIndex = s_focusedIndex;
+      if (onSelectionChange) onSelectionChange(&items[s_focusedIndex], s_focusedIndex);
+    } else {
+      if (s_anchorIndex == -1) s_anchorIndex = s_focusedIndex - 1;
+      int start = std::min(s_anchorIndex, s_focusedIndex);
+      int end = std::max(s_anchorIndex, s_focusedIndex);
+      for (int i = 0; i < itemCount; i++) {
+        items[i].selected = (i >= start && i <= end);
+      }
+    }
+  }
+  
+  // Home/End
+  if (IsKeyPressed(KEY_HOME) && itemCount > 0) {
+    s_focusedIndex = 0;
+    if (!isShiftDown) {
+      for (int i = 0; i < itemCount; i++) items[i].selected = false;
+      items[0].selected = true;
+      s_anchorIndex = 0;
+    }
+  }
+  
+  if (IsKeyPressed(KEY_END) && itemCount > 0) {
+    s_focusedIndex = itemCount - 1;
+    if (!isShiftDown) {
+      for (int i = 0; i < itemCount; i++) items[i].selected = false;
+      items[itemCount - 1].selected = true;
+      s_anchorIndex = itemCount - 1;
+    }
+  }
+  
+  // Page Up/Down (10 items)
+  if (IsKeyPressed(KEY_PAGE_UP) && s_focusedIndex > 0) {
+    s_focusedIndex = std::max(0, s_focusedIndex - 10);
+    if (!isShiftDown) {
+      for (int i = 0; i < itemCount; i++) items[i].selected = false;
+      items[s_focusedIndex].selected = true;
+      s_anchorIndex = s_focusedIndex;
+    }
+  }
+  
+  if (IsKeyPressed(KEY_PAGE_DOWN) && s_focusedIndex < itemCount - 1) {
+    s_focusedIndex = std::min(itemCount - 1, s_focusedIndex + 10);
+    if (!isShiftDown) {
+      for (int i = 0; i < itemCount; i++) items[i].selected = false;
+      items[s_focusedIndex].selected = true;
+      s_anchorIndex = s_focusedIndex;
+    }
+  }
+  
+  // Enter to activate
+  if (IsKeyPressed(KEY_ENTER) && s_focusedIndex >= 0 && s_focusedIndex < itemCount) {
+    if (onSelectionChange) {
+      onSelectionChange(&items[s_focusedIndex], s_focusedIndex);
+    }
+  }
+  
+  // Space to toggle selection
+  if (IsKeyPressed(KEY_SPACE) && s_focusedIndex >= 0 && s_focusedIndex < itemCount) {
+    items[s_focusedIndex].selected = !items[s_focusedIndex].selected;
+  }
+  
+  // Ctrl+A to select all
+  if (isCmdDown && IsKeyPressed(KEY_A)) {
+    for (int i = 0; i < itemCount; i++) {
+      items[i].selected = true;
+    }
+  }
+  
+  // Escape to clear selection
+  if (IsKeyPressed(KEY_ESCAPE)) {
+    for (int i = 0; i < itemCount; i++) {
+      items[i].selected = false;
+    }
+    s_anchorIndex = -1;
+  }
+  
+  // Typeahead search
+  int key = GetCharPressed();
+  while (key > 0) {
+    if (key >= 32 && key <= 126) {
+      s_typeaheadBuffer += (char)key;
+      s_typeaheadTime = kTypeaheadTimeout;
+      
+      // Find first match
+      for (int i = 0; i < itemCount; i++) {
+        if (items[i].text) {
+          std::string itemText = items[i].text;
+          std::string searchText = s_typeaheadBuffer;
+          std::transform(itemText.begin(), itemText.end(), itemText.begin(), ::tolower);
+          std::transform(searchText.begin(), searchText.end(), searchText.begin(), ::tolower);
+          
+          if (itemText.find(searchText) == 0) {
+            s_focusedIndex = i;
+            for (int j = 0; j < itemCount; j++) items[j].selected = false;
+            items[i].selected = true;
+            s_anchorIndex = i;
+            if (onSelectionChange) onSelectionChange(&items[i], i);
+            break;
+          }
+        }
+      }
+    }
+    key = GetCharPressed();
+  }
   
   std::vector<Rectangle> itemBounds;
   float endY = RenderListItems(bounds, items, itemCount, 0, bounds.y, &itemBounds);
