@@ -381,6 +381,12 @@ raym3 is an independent, self-contained project. All resources (icons and fonts)
 
 ## Changelog
 
+### v1.4.0 - Stable Layout IDs
+- **Layout Flicker Fix**: Eliminated UI flicker when layout structure changes (adding/removing elements, switching tabs) by implementing stable hash-based node IDs instead of sequential numbering.
+- **Stable Node IDs**: Layout node IDs now use FNV-1a hashing based on tree hierarchy rather than sequential order. IDs remain stable when siblings are added/removed.
+- **New Layout API**: Added `PushId(const char*)`, `PushId(int)`, and `PopId()` for advanced manual ID control in complex layouts.
+- **Backward Compatible**: All existing code continues to work. `SetIdOffset` maintains compatibility while integrating with the hash-based system.
+
 ### v1.3.0 - UX Overhaul & Tooltip System
 - **Buffered Cursor System**: Added `RequestCursor()` API - cursor is set once per frame in `EndFrame()` to prevent flickering when multiple components render. Components call `RequestCursor()` instead of `SetMouseCursor()` directly.
 - **Tooltip Smart Timing**: Tooltips show instantly (50ms) after the first tooltip in a session. Returns to normal delay after 2 seconds of inactivity.
