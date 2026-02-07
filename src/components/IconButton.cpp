@@ -56,8 +56,8 @@ bool IconButtonComponent::Render(const char *iconName, Rectangle bounds,
     RequestCursor(MOUSE_CURSOR_POINTING_HAND);
   }
   
-  // Lose focus when clicking away
-  if (isFocused && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !isHovered) {
+  // Lose focus when clicking anywhere outside (raw check, bypass input layers)
+  if (isFocused && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !CheckCollisionPointRec(GetMousePosition(), bounds)) {
     focusedIconButtonId_ = -1;
     isFocused = false;
   }

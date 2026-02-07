@@ -29,9 +29,24 @@ static Vector2 s_dragStartPos = {0, 0};
 // Keyboard navigation state
 static int s_focusedIndex = -1;
 static int s_anchorIndex = -1;
+static bool s_listHasFocus = false;
 static std::string s_typeaheadBuffer;
 static float s_typeaheadTime = 0.0f;
 static const float kTypeaheadTimeout = 0.5f;
+
+struct FlatItem {
+  ListItem *item;
+  int depth;
+};
+
+static void FlattenVisibleItems(ListItem *items, int count, int depth, std::vector<FlatItem> &out) {
+  for (int i = 0; i < count; i++) {
+    out.push_back({&items[i], depth});
+    if (items[i].expanded && items[i].children && items[i].childCount > 0) {
+      FlattenVisibleItems(items[i].children, items[i].childCount, depth + 1, out);
+    }
+  }
+}
 
 bool ListIsDragging() { return s_draggingIndex != -1; }
 int ListGetDragSourceIndex() { return s_draggingIndex; }
@@ -260,6 +275,15 @@ void List(Rectangle bounds, ListItem *items, int itemCount, float *outHeight,
   s_selectionCallback = onSelectionChange;
   s_dragCallback = onDragReorder;
   
+  // Focus management: click inside list to focus, click outside to blur
+  if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    if (CheckCollisionPointRec(GetMousePosition(), bounds)) {
+      s_listHasFocus = true;
+    } else {
+      s_listHasFocus = false;
+    }
+  }
+  
   // Update typeahead timeout
   if (s_typeaheadTime > 0.0f) {
     s_typeaheadTime -= GetFrameTime();
@@ -268,152 +292,178 @@ void List(Rectangle bounds, ListItem *items, int itemCount, float *outHeight,
     }
   }
   
-  // Keyboard navigation
+  // Keyboard navigation (only when list has focus)
   bool isCtrlDown = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
   bool isShiftDown = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
   bool isSuperDown = IsKeyDown(KEY_LEFT_SUPER) || IsKeyDown(KEY_RIGHT_SUPER);
   bool isCmdDown = isCtrlDown || isSuperDown;
   
-  // Initialize focus if needed
-  if (s_focusedIndex == -1 && itemCount > 0) {
-    for (int i = 0; i < itemCount; i++) {
-      if (items[i].selected) {
+  // Build flat list of all visible items (including expanded children)
+  std::vector<FlatItem> flatItems;
+  FlattenVisibleItems(items, itemCount, 0, flatItems);
+  int flatCount = (int)flatItems.size();
+  
+  // Helper to clear selection across all visible items
+  auto clearAllSelections = [&]() {
+    for (auto &fi : flatItems) fi.item->selected = false;
+  };
+  
+  // Initialize focus index when list gains focus
+  if (s_listHasFocus && s_focusedIndex == -1 && flatCount > 0) {
+    for (int i = 0; i < flatCount; i++) {
+      if (flatItems[i].item->selected) {
         s_focusedIndex = i;
         break;
       }
     }
-    if (s_focusedIndex == -1) {
-      s_focusedIndex = 0;
-    }
+    if (s_focusedIndex == -1) s_focusedIndex = 0;
   }
   
-  // Clamp focus index
-  if (s_focusedIndex >= itemCount) s_focusedIndex = itemCount - 1;
-  if (s_focusedIndex < 0) s_focusedIndex = 0;
+  // Clamp focus index to flat list
+  if (s_focusedIndex >= flatCount) s_focusedIndex = flatCount - 1;
+  if (s_focusedIndex < 0 && flatCount > 0) s_focusedIndex = 0;
   
-  // Arrow key navigation
+  if (s_listHasFocus && flatCount > 0) {
+  ListItem *focused = flatItems[s_focusedIndex].item;
+  
+  // Up/Down navigation through flat visible list
   if (IsKeyPressed(KEY_UP) && s_focusedIndex > 0) {
     s_focusedIndex--;
+    focused = flatItems[s_focusedIndex].item;
     if (!isShiftDown) {
-      // Clear other selections
-      for (int i = 0; i < itemCount; i++) items[i].selected = false;
-      items[s_focusedIndex].selected = true;
+      clearAllSelections();
+      focused->selected = true;
       s_anchorIndex = s_focusedIndex;
-      if (onSelectionChange) onSelectionChange(&items[s_focusedIndex], s_focusedIndex);
+      if (onSelectionChange) onSelectionChange(focused, s_focusedIndex);
     } else {
-      // Extend selection
       if (s_anchorIndex == -1) s_anchorIndex = s_focusedIndex + 1;
       int start = std::min(s_anchorIndex, s_focusedIndex);
       int end = std::max(s_anchorIndex, s_focusedIndex);
-      for (int i = 0; i < itemCount; i++) {
-        items[i].selected = (i >= start && i <= end);
+      for (int i = 0; i < flatCount; i++) {
+        flatItems[i].item->selected = (i >= start && i <= end);
       }
     }
   }
   
-  if (IsKeyPressed(KEY_DOWN) && s_focusedIndex < itemCount - 1) {
+  if (IsKeyPressed(KEY_DOWN) && s_focusedIndex < flatCount - 1) {
     s_focusedIndex++;
+    focused = flatItems[s_focusedIndex].item;
     if (!isShiftDown) {
-      for (int i = 0; i < itemCount; i++) items[i].selected = false;
-      items[s_focusedIndex].selected = true;
+      clearAllSelections();
+      focused->selected = true;
       s_anchorIndex = s_focusedIndex;
-      if (onSelectionChange) onSelectionChange(&items[s_focusedIndex], s_focusedIndex);
+      if (onSelectionChange) onSelectionChange(focused, s_focusedIndex);
     } else {
       if (s_anchorIndex == -1) s_anchorIndex = s_focusedIndex - 1;
       int start = std::min(s_anchorIndex, s_focusedIndex);
       int end = std::max(s_anchorIndex, s_focusedIndex);
-      for (int i = 0; i < itemCount; i++) {
-        items[i].selected = (i >= start && i <= end);
+      for (int i = 0; i < flatCount; i++) {
+        flatItems[i].item->selected = (i >= start && i <= end);
       }
     }
   }
   
   // Home/End
-  if (IsKeyPressed(KEY_HOME) && itemCount > 0) {
+  if (IsKeyPressed(KEY_HOME)) {
     s_focusedIndex = 0;
+    focused = flatItems[0].item;
     if (!isShiftDown) {
-      for (int i = 0; i < itemCount; i++) items[i].selected = false;
-      items[0].selected = true;
+      clearAllSelections();
+      focused->selected = true;
       s_anchorIndex = 0;
     }
   }
   
-  if (IsKeyPressed(KEY_END) && itemCount > 0) {
-    s_focusedIndex = itemCount - 1;
+  if (IsKeyPressed(KEY_END)) {
+    s_focusedIndex = flatCount - 1;
+    focused = flatItems[s_focusedIndex].item;
     if (!isShiftDown) {
-      for (int i = 0; i < itemCount; i++) items[i].selected = false;
-      items[itemCount - 1].selected = true;
-      s_anchorIndex = itemCount - 1;
+      clearAllSelections();
+      focused->selected = true;
+      s_anchorIndex = s_focusedIndex;
     }
   }
   
   // Page Up/Down (10 items)
   if (IsKeyPressed(KEY_PAGE_UP) && s_focusedIndex > 0) {
     s_focusedIndex = std::max(0, s_focusedIndex - 10);
+    focused = flatItems[s_focusedIndex].item;
     if (!isShiftDown) {
-      for (int i = 0; i < itemCount; i++) items[i].selected = false;
-      items[s_focusedIndex].selected = true;
+      clearAllSelections();
+      focused->selected = true;
       s_anchorIndex = s_focusedIndex;
     }
   }
   
-  if (IsKeyPressed(KEY_PAGE_DOWN) && s_focusedIndex < itemCount - 1) {
-    s_focusedIndex = std::min(itemCount - 1, s_focusedIndex + 10);
+  if (IsKeyPressed(KEY_PAGE_DOWN) && s_focusedIndex < flatCount - 1) {
+    s_focusedIndex = std::min(flatCount - 1, s_focusedIndex + 10);
+    focused = flatItems[s_focusedIndex].item;
     if (!isShiftDown) {
-      for (int i = 0; i < itemCount; i++) items[i].selected = false;
-      items[s_focusedIndex].selected = true;
+      clearAllSelections();
+      focused->selected = true;
       s_anchorIndex = s_focusedIndex;
     }
   }
   
-  // Enter to activate
-  if (IsKeyPressed(KEY_ENTER) && s_focusedIndex >= 0 && s_focusedIndex < itemCount) {
-    if (onSelectionChange) {
-      onSelectionChange(&items[s_focusedIndex], s_focusedIndex);
+  // Right arrow to expand
+  if (IsKeyPressed(KEY_RIGHT)) {
+    if (focused->childCount > 0 && !focused->expanded) {
+      focused->expanded = true;
+    }
+  }
+  
+  // Left arrow to collapse, or jump to parent
+  if (IsKeyPressed(KEY_LEFT)) {
+    if (focused->childCount > 0 && focused->expanded) {
+      focused->expanded = false;
+    }
+  }
+  
+  // Enter to toggle expand or activate
+  if (IsKeyPressed(KEY_ENTER)) {
+    if (focused->childCount > 0) {
+      focused->expanded = !focused->expanded;
+    } else if (onSelectionChange) {
+      onSelectionChange(focused, s_focusedIndex);
     }
   }
   
   // Space to toggle selection
-  if (IsKeyPressed(KEY_SPACE) && s_focusedIndex >= 0 && s_focusedIndex < itemCount) {
-    items[s_focusedIndex].selected = !items[s_focusedIndex].selected;
+  if (IsKeyPressed(KEY_SPACE)) {
+    focused->selected = !focused->selected;
   }
   
-  // Ctrl+A to select all
+  // Ctrl+A to select all visible
   if (isCmdDown && IsKeyPressed(KEY_A)) {
-    for (int i = 0; i < itemCount; i++) {
-      items[i].selected = true;
-    }
+    for (auto &fi : flatItems) fi.item->selected = true;
   }
   
   // Escape to clear selection
   if (IsKeyPressed(KEY_ESCAPE)) {
-    for (int i = 0; i < itemCount; i++) {
-      items[i].selected = false;
-    }
+    clearAllSelections();
     s_anchorIndex = -1;
   }
   
-  // Typeahead search
+  // Typeahead search across all visible items
   int key = GetCharPressed();
   while (key > 0) {
     if (key >= 32 && key <= 126) {
       s_typeaheadBuffer += (char)key;
       s_typeaheadTime = kTypeaheadTimeout;
       
-      // Find first match
-      for (int i = 0; i < itemCount; i++) {
-        if (items[i].text) {
-          std::string itemText = items[i].text;
+      for (int i = 0; i < flatCount; i++) {
+        if (flatItems[i].item->text) {
+          std::string itemText = flatItems[i].item->text;
           std::string searchText = s_typeaheadBuffer;
           std::transform(itemText.begin(), itemText.end(), itemText.begin(), ::tolower);
           std::transform(searchText.begin(), searchText.end(), searchText.begin(), ::tolower);
           
           if (itemText.find(searchText) == 0) {
             s_focusedIndex = i;
-            for (int j = 0; j < itemCount; j++) items[j].selected = false;
-            items[i].selected = true;
+            clearAllSelections();
+            flatItems[i].item->selected = true;
             s_anchorIndex = i;
-            if (onSelectionChange) onSelectionChange(&items[i], i);
+            if (onSelectionChange) onSelectionChange(flatItems[i].item, i);
             break;
           }
         }
@@ -421,6 +471,7 @@ void List(Rectangle bounds, ListItem *items, int itemCount, float *outHeight,
     }
     key = GetCharPressed();
   }
+  } // end s_listHasFocus
   
   std::vector<Rectangle> itemBounds;
   float endY = RenderListItems(bounds, items, itemCount, 0, bounds.y, &itemBounds);

@@ -116,8 +116,8 @@ RangeSliderComponent::Render(Rectangle bounds, const std::vector<float> &values,
     isFocused = true;
   }
   
-  // Lose focus when clicking away
-  if (isFocused && mousePressed && !mouseOverHit) {
+  // Lose focus when clicking anywhere outside (raw check, bypass input layers)
+  if (isFocused && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !CheckCollisionPointRec(mousePos, hitRect)) {
     focusedFieldId_ = -1;
     isFocused = false;
   }
