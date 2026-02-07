@@ -1,9 +1,20 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <raylib.h>
 
 namespace raym3 {
+
+void RequestCursor(int cursor);
+
+enum class TooltipPlacement {
+  Auto,
+  Above,
+  Below,
+  Left,
+  Right
+};
 
 enum class FontWeight { Thin, Light, Regular, Medium, Bold, Black };
 
@@ -66,6 +77,8 @@ struct ButtonOptions {
   Color textColor = {0, 0, 0, 0};
   bool drawOutline = true;
   bool drawBackground = true;
+  const char *tooltip = nullptr;
+  TooltipPlacement tooltipPlacement = TooltipPlacement::Auto;
 };
 
 struct TextFieldOptions {
@@ -93,29 +106,34 @@ struct SliderOptions {
   const char *endIcon = nullptr;
   const char *startText = nullptr;
   const char *endText = nullptr;
-  bool showEndDot = true; // Defaults to true, but if endIcon/endText is set,
-                          // logic will likely disable unless forced
-  bool showValueIndicator = false;  // Show value in a bubble above thumb
-  const char *valueFormat = "%.0f"; // Format string for value indicator
+  bool showEndDot = true;
+  bool showValueIndicator = false;
+  const char *valueFormat = "%.0f";
   Color activeTrackColor = {0, 0, 0, 0};
   Color inactiveTrackColor = {0, 0, 0, 0};
   Color handleColor = {0, 0, 0, 0};
-  // M3 Expressive features
-  bool showStopIndicators = false; // Show dots at min/max positions
-  float stepValue = 0.0f;          // 0 = continuous, >0 = discrete mode
-  bool showTickMarks = false;      // Show tick marks for discrete mode
+  bool showStopIndicators = false;
+  float stepValue = 0.0f;
+  bool showTickMarks = false;
+  std::function<void()> onRelease;
+  
+  const char *tooltip = nullptr;
+  TooltipPlacement tooltipPlacement = TooltipPlacement::Auto;
 };
 
 struct RangeSliderOptions {
   bool showValueIndicators = false;
   const char *valueFormat = "%.0f";
-  Color activeTrackColor = {0, 0, 0, 0};   // Fill between thumbs
-  Color inactiveTrackColor = {0, 0, 0, 0}; // Inactive portions
+  Color activeTrackColor = {0, 0, 0, 0};
+  Color inactiveTrackColor = {0, 0, 0, 0};
   Color handleColor = {0, 0, 0, 0};
   bool showStopIndicators = false;
-  float stepValue = 0.0f;     // 0 = continuous, >0 = discrete
-  bool showTickMarks = false; // Show tick marks for discrete mode
-  float minDistance = 0.0f;   // Minimum distance between adjacent thumbs
+  float stepValue = 0.0f;
+  bool showTickMarks = false;
+  float minDistance = 0.0f;
+  
+  const char *tooltip = nullptr;
+  TooltipPlacement tooltipPlacement = TooltipPlacement::Auto;
 };
 
 } // namespace raym3

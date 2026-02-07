@@ -14,7 +14,7 @@ public:
   static void ResetFieldId();
 
 private:
-  static Rectangle GetTrackBounds(Rectangle bounds);
+  static Rectangle GetTrackBounds(Rectangle bounds, bool hasLabel = false);
   static float GetValueFromPosition(Rectangle trackBounds, float x);
 };
 

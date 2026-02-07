@@ -1,10 +1,12 @@
 #include "raym3/components/RangeSlider.h"
 #include "raym3/components/Dialog.h"
+#include "raym3/components/Tooltip.h"
 #include "raym3/rendering/Renderer.h"
 #include "raym3/styles/Theme.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <map>
 #include <raylib.h>
 
 #if RAYM3_USE_INPUT_LAYERS
@@ -13,12 +15,31 @@
 
 namespace raym3 {
 
-// Static state for immediate mode tracking
+struct RangeSliderState {
+  bool wasFocused = false;
+  int lastActiveFrame = -1;
+  int focusedThumbIndex = 0;
+};
+
 static int activeFieldId_ = -1;
 static int activeThumbIndex_ = -1;
 static int currentFieldId_ = 0;
+static int focusedFieldId_ = -1;
+static std::map<int, RangeSliderState> rangeSliderStates_;
+static int currentFrame_ = 0;
 
-void RangeSliderComponent::ResetFieldId() { currentFieldId_ = 0; }
+void RangeSliderComponent::ResetFieldId() { 
+  currentFieldId_ = 0;
+  currentFrame_++;
+  
+  for (auto it = rangeSliderStates_.begin(); it != rangeSliderStates_.end();) {
+    if (it->second.lastActiveFrame < currentFrame_ - 1) {
+      it = rangeSliderStates_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
 
 std::vector<float>
 RangeSliderComponent::Render(Rectangle bounds, const std::vector<float> &values,
@@ -55,11 +76,14 @@ RangeSliderComponent::Render(Rectangle bounds, const std::vector<float> &values,
     thumbRects.push_back(thumbRect);
   }
 
-  // Check interaction
   bool inputBlocked =
       DialogComponent::IsActive() && !DialogComponent::IsRendering();
   int fieldId = currentFieldId_++;
   bool isDraggingThis = (activeFieldId_ == fieldId);
+  bool isFocused = (focusedFieldId_ == fieldId);
+  
+  RangeSliderState &rangeState = rangeSliderStates_[fieldId];
+  rangeState.lastActiveFrame = currentFrame_;
 
   Vector2 mousePos = GetMousePosition();
   Rectangle hitRect = {trackBounds.x, trackBounds.y - 15, trackBounds.width,
@@ -80,6 +104,23 @@ RangeSliderComponent::Render(Rectangle bounds, const std::vector<float> &values,
   bool mousePressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
   bool mouseReleased = IsMouseButtonReleased(MOUSE_BUTTON_LEFT);
 #endif
+
+  if (isDraggingThis && mouseDown) {
+    RequestCursor(MOUSE_CURSOR_RESIZE_EW);
+  } else if (mouseOverHit) {
+    RequestCursor(MOUSE_CURSOR_POINTING_HAND);
+  }
+
+  if (mousePressed && mouseOverHit) {
+    focusedFieldId_ = fieldId;
+    isFocused = true;
+  }
+  
+  // Lose focus when clicking anywhere outside (raw check, bypass input layers)
+  if (isFocused && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !CheckCollisionPointRec(mousePos, hitRect)) {
+    focusedFieldId_ = -1;
+    isFocused = false;
+  }
 
   if (!inputBlocked) {
     if (mousePressed && mouseOverHit) {
@@ -145,6 +186,83 @@ RangeSliderComponent::Render(Rectangle bounds, const std::vector<float> &values,
       isDraggingThis = false;
     }
   }
+  
+  // Keyboard control when focused
+  if (isFocused && !isDraggingThis && !inputBlocked && !result.empty()) {
+    bool isShiftDown = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+    
+    int thumbIndex = rangeState.focusedThumbIndex;
+    if (thumbIndex < 0 || thumbIndex >= (int)result.size()) {
+      thumbIndex = 0;
+      rangeState.focusedThumbIndex = 0;
+    }
+    
+    // Tab to cycle through thumbs
+    if (IsKeyPressed(KEY_TAB)) {
+      if (isShiftDown) {
+        rangeState.focusedThumbIndex = (rangeState.focusedThumbIndex - 1 + (int)result.size()) % (int)result.size();
+      } else {
+        rangeState.focusedThumbIndex = (rangeState.focusedThumbIndex + 1) % (int)result.size();
+      }
+      thumbIndex = rangeState.focusedThumbIndex;
+    }
+    
+    float range = max - min;
+    float step = options.stepValue > 0.0f ? options.stepValue : (range * 0.01f);
+    if (isShiftDown && !IsKeyPressed(KEY_TAB)) step *= 10.0f;
+    
+    bool valueChanged = false;
+    float newValue = result[thumbIndex];
+    
+    // Arrow keys
+    if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_DOWN)) {
+      newValue -= step;
+      valueChanged = true;
+    }
+    if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_UP)) {
+      newValue += step;
+      valueChanged = true;
+    }
+    
+    // Page Up/Down
+    if (IsKeyPressed(KEY_PAGE_UP)) {
+      newValue += range * 0.2f;
+      valueChanged = true;
+    }
+    if (IsKeyPressed(KEY_PAGE_DOWN)) {
+      newValue -= range * 0.2f;
+      valueChanged = true;
+    }
+    
+    // Home/End
+    if (IsKeyPressed(KEY_HOME)) {
+      newValue = min;
+      valueChanged = true;
+    }
+    if (IsKeyPressed(KEY_END)) {
+      newValue = max;
+      valueChanged = true;
+    }
+    
+    if (valueChanged) {
+      if (options.stepValue > 0.0f) {
+        newValue = std::round((newValue - min) / options.stepValue) * options.stepValue + min;
+      }
+      
+      // Enforce ordering
+      float minVal = (thumbIndex > 0) ? result[thumbIndex - 1] + options.minDistance : min;
+      float maxVal = (thumbIndex < (int)result.size() - 1) ? result[thumbIndex + 1] - options.minDistance : max;
+      newValue = std::clamp(newValue, minVal, maxVal);
+      
+      result[thumbIndex] = newValue;
+      
+      // Recalculate for drawing
+      float updatedNorm = (newValue - min) / (max - min);
+      normalizedValues[thumbIndex] = updatedNorm;
+      float splitX = trackBounds.x + (trackBounds.width * updatedNorm);
+      thumbRects[thumbIndex].x = splitX - thumbWidth / 2.0f;
+    }
+  }
 
   // Determine colors
   Color activeColor = options.activeTrackColor.a > 0 ? options.activeTrackColor
@@ -167,19 +285,25 @@ RangeSliderComponent::Render(Rectangle bounds, const std::vector<float> &values,
     float endX = trackBounds.x + trackBounds.width * endNorm;
 
     if (endX > startX) {
-      BeginScissorMode((int)startX, (int)trackBounds.y, (int)(endX - startX),
-                       (int)trackHeight);
-      Renderer::DrawRoundedRectangle(trackBounds, cornerRadius, activeColor);
-      EndScissorMode();
+      float scissorWidth = endX - startX;
+      if (scissorWidth > 0.0f && trackHeight > 0.0f) {
+        BeginScissorMode((int)startX, (int)trackBounds.y, (int)scissorWidth,
+                         (int)trackHeight);
+        Renderer::DrawRoundedRectangle(trackBounds, cornerRadius, activeColor);
+        EndScissorMode();
+      }
     }
   } else if (result.size() == 1) {
     // Single thumb: fill from start to thumb
     float norm = normalizedValues[0];
     if (norm > 0.0f) {
-      BeginScissorMode((int)trackBounds.x, (int)trackBounds.y,
-                       (int)(trackBounds.width * norm), (int)trackHeight);
-      Renderer::DrawRoundedRectangle(trackBounds, cornerRadius, activeColor);
-      EndScissorMode();
+      float scissorWidth = trackBounds.width * norm;
+      if (scissorWidth > 0.0f && trackHeight > 0.0f) {
+        BeginScissorMode((int)trackBounds.x, (int)trackBounds.y,
+                         (int)scissorWidth, (int)trackHeight);
+        Renderer::DrawRoundedRectangle(trackBounds, cornerRadius, activeColor);
+        EndScissorMode();
+      }
     }
   }
 
@@ -293,6 +417,29 @@ RangeSliderComponent::Render(Rectangle bounds, const std::vector<float> &values,
     Vector2 labelPos = {bounds.x, bounds.y};
     Renderer::DrawText(label, labelPos, 14.0f, scheme.onSurface,
                        FontWeight::Regular);
+  }
+  
+  // Draw focus ring on focused thumb
+  if (isFocused && !isDraggingThis) {
+    int thumbIndex = rangeState.focusedThumbIndex;
+    if (thumbIndex >= 0 && thumbIndex < (int)thumbRects.size()) {
+      Rectangle focusThumb = thumbRects[thumbIndex];
+      float focusInset = -4.0f;
+      Rectangle focusRect = {focusThumb.x + focusInset, focusThumb.y + focusInset,
+                             focusThumb.width - focusInset * 2, focusThumb.height - focusInset * 2};
+      DrawRectangleLinesEx(focusRect, 2.0f, ColorAlpha(scheme.primary, 0.5f));
+    }
+  }
+  
+  // Tooltip support
+  if (options.tooltip && (mouseOverHit || isFocused)) {
+    int tooltipThumb = isDraggingThis ? activeThumbIndex_ : (isFocused ? rangeState.focusedThumbIndex : -1);
+    if (tooltipThumb >= 0 && tooltipThumb < (int)thumbRects.size()) {
+      TooltipOptions tooltipOpts;
+      tooltipOpts.placement = options.tooltipPlacement;
+      tooltipOpts.delayMs = isFocused && !mouseOverHit ? 100.0f : 500.0f;
+      Tooltip(thumbRects[tooltipThumb], options.tooltip, tooltipOpts);
+    }
   }
 
   return result;

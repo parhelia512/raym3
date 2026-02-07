@@ -1,4 +1,5 @@
 #include "raym3/components/View3D.h"
+#include "raym3/components/TabBar.h"
 #include "raym3/layout/Layout.h"
 #include <algorithm>
 #include <raylib.h>
@@ -11,96 +12,121 @@
 namespace raym3 {
 
 // Embedded Shader Sources
-static const char *fragShader330 = R"(
-#version 330
+// Vertex shader for GLSL 330 (desktop OpenGL 3.3)
+static const char *vertShader330 = R"(#version 330
+in vec2 vertexPosition;
+in vec2 vertexTexCoord;
+in vec4 vertexColor;
+uniform mat4 mvp;
+out vec2 fragTexCoord;
+out vec4 fragColor;
+void main() {
+    fragTexCoord = vertexTexCoord;
+    fragColor = vertexColor;
+    gl_Position = mvp * vec4(vertexPosition, 0.0, 1.0);
+}
+)";
+
+// Vertex shader for GLSL ES 300 (WebGL 2.0 / OpenGL ES 3.0)
+static const char *vertShader300es = R"(#version 300 es
+in vec2 vertexPosition;
+in vec2 vertexTexCoord;
+in vec4 vertexColor;
+uniform mat4 mvp;
+out vec2 fragTexCoord;
+out vec4 fragColor;
+void main() {
+    fragTexCoord = vertexTexCoord;
+    fragColor = vertexColor;
+    gl_Position = mvp * vec4(vertexPosition, 0.0, 1.0);
+}
+)";
+
+static const char *vertShader100 = R"(
+attribute vec2 vertexPosition;
+attribute vec2 vertexTexCoord;
+attribute vec4 vertexColor;
+uniform mat4 mvp;
+varying vec2 fragTexCoord;
+varying vec4 fragColor;
+void main() {
+    fragTexCoord = vertexTexCoord;
+    fragColor = vertexColor;
+    gl_Position = mvp * vec4(vertexPosition, 0.0, 1.0);
+}
+)";
+
+// Fragment shader for GLSL 330 (desktop)
+static const char *fragShader330 = R"(#version 330
 in vec2 fragTexCoord;
 in vec4 fragColor;
 out vec4 finalColor;
-
 uniform sampler2D texture0;
 uniform vec4 colDiffuse;
-
 uniform vec2 resolution;
 uniform float radius;
-
-void main()
-{
+void main() {
     vec4 texColor = texture(texture0, fragTexCoord);
-    
-    // Calculate pixel position
-    // fragTexCoord is 0..1. 
-    // In Raylib, texture coordinates might be flipped depending on how it's drawn, 
-    // but for RenderTexture drawn with DrawTexturePro, it's usually standard.
-    // However, RenderTextures are often Y-flipped in OpenGL. 
-    // Raylib's DrawTextureRec handles the flip.
-    
     vec2 pixelPos = fragTexCoord * resolution;
     vec2 center = resolution / 2.0;
     vec2 halfSize = resolution / 2.0;
-    
-    // SDF for rounded box
-    // p is vector from center
     vec2 p = pixelPos - center;
-    
-    // b is the box half-size minus radius
-    // We clamp radius to be at most half the smallest dimension to avoid artifacts
     float r = min(radius, min(halfSize.x, halfSize.y));
     vec2 b = halfSize - vec2(r);
-    
-    // Distance calculation
     float d = length(max(abs(p) - b, 0.0)) - r;
-    
-    // Anti-aliasing
-    // We want to fade from 1.0 (inside) to 0.0 (outside) around d=0
-    // smoothstep(0.0, 1.5, d) gives 0->1 transition over 1.5 pixels outside
-    // 1.0 - ... gives 1->0 transition
     float alpha = 1.0 - smoothstep(-0.5, 0.5, d);
-    
-    // Discard fragments that are clearly outside the bounds to prevent overdraw
-    // This ensures the viewport doesn't render outside its allocated area
-    if (alpha <= 0.0) {
-        discard;
-    }
-    
+    if (alpha <= 0.0) { discard; }
     finalColor = texColor * colDiffuse;
     finalColor.a *= alpha;
 }
 )";
 
-static const char *fragShader100 = R"(
-#version 100
-precision mediump float;
-
-varying vec2 fragTexCoord;
-varying vec4 fragColor;
-
+// Fragment shader for GLSL ES 300 (WebGL 2.0)
+static const char *fragShader300es = R"(#version 300 es
+precision highp float;
+in vec2 fragTexCoord;
+in vec4 fragColor;
+out vec4 finalColor;
 uniform sampler2D texture0;
 uniform vec4 colDiffuse;
-
 uniform vec2 resolution;
 uniform float radius;
-
-void main()
-{
-    vec4 texColor = texture2D(texture0, fragTexCoord);
-    
+void main() {
+    vec4 texColor = texture(texture0, fragTexCoord);
     vec2 pixelPos = fragTexCoord * resolution;
     vec2 center = resolution / 2.0;
     vec2 halfSize = resolution / 2.0;
-    
     vec2 p = pixelPos - center;
     float r = min(radius, min(halfSize.x, halfSize.y));
     vec2 b = halfSize - vec2(r);
-    
     float d = length(max(abs(p) - b, 0.0)) - r;
-    
     float alpha = 1.0 - smoothstep(-0.5, 0.5, d);
-    
-    // Discard fragments that are clearly outside the bounds to prevent overdraw
-    if (alpha <= 0.0) {
-        discard;
-    }
-    
+    if (alpha <= 0.0) { discard; }
+    finalColor = texColor * colDiffuse;
+    finalColor.a *= alpha;
+}
+)";
+
+// Fragment shader for GLSL 100 (WebGL 1.0 fallback)
+static const char *fragShader100 = R"(#version 100
+precision mediump float;
+varying vec2 fragTexCoord;
+varying vec4 fragColor;
+uniform sampler2D texture0;
+uniform vec4 colDiffuse;
+uniform vec2 resolution;
+uniform float radius;
+void main() {
+    vec4 texColor = texture2D(texture0, fragTexCoord);
+    vec2 pixelPos = fragTexCoord * resolution;
+    vec2 center = resolution / 2.0;
+    vec2 halfSize = resolution / 2.0;
+    vec2 p = pixelPos - center;
+    float r = min(radius, min(halfSize.x, halfSize.y));
+    vec2 b = halfSize - vec2(r);
+    float d = length(max(abs(p) - b, 0.0)) - r;
+    float alpha = 1.0 - smoothstep(-0.5, 0.5, d);
+    if (alpha <= 0.0) { discard; }
     gl_FragColor = texColor * colDiffuse;
     gl_FragColor.a *= alpha;
 }
@@ -116,6 +142,9 @@ View3D::~View3D() {
   if (target_.id != 0) {
     UnloadRenderTexture(target_);
   }
+  if (postProcessTarget_.id != 0) {
+    UnloadRenderTexture(postProcessTarget_);
+  }
   if (shaderLoaded_) {
     UnloadShader(shader_);
   }
@@ -125,18 +154,20 @@ void View3D::LoadRoundedShader() {
   if (shaderLoaded_)
     return;
 
-  // Check GLSL version support (simplified check)
-  // Raylib doesn't expose a simple "IsGLSL330Supported" but we can try 330
-  // first or check RLGL version. For simplicity, we'll assume desktop 330 for
-  // now, or fallback if compilation fails? Raylib logs errors but returns
-  // default shader if fails.
-
-  // Actually, let's just try 330.
-  shader_ = LoadShaderFromMemory(0, fragShader330);
+#ifdef __EMSCRIPTEN__
+  shader_ = LoadShaderFromMemory(vertShader300es, fragShader300es);
+  if (shader_.id == rlGetShaderIdDefault()) {
+    shader_ = LoadShaderFromMemory(vertShader100, fragShader100);
+  }
+#else
+  shader_ = LoadShaderFromMemory(vertShader330, fragShader330);
+  if (shader_.id == rlGetShaderIdDefault()) {
+    shader_ = LoadShaderFromMemory(vertShader100, fragShader100);
+  }
+#endif
 
   if (shader_.id == rlGetShaderIdDefault()) {
-    // Fallback to 100
-    shader_ = LoadShaderFromMemory(0, fragShader100);
+    return;
   }
 
   shaderLocResolution_ = GetShaderLocation(shader_, "resolution");
@@ -153,6 +184,15 @@ void View3D::EnsureTextureSize(int width, int height) {
     target_ = LoadRenderTexture(width, height);
     SetTextureFilter(target_.texture, TEXTURE_FILTER_BILINEAR);
   }
+  
+  if (postProcessTarget_.id == 0 || postProcessTarget_.texture.width != width ||
+      postProcessTarget_.texture.height != height) {
+    if (postProcessTarget_.id != 0) {
+      UnloadRenderTexture(postProcessTarget_);
+    }
+    postProcessTarget_ = LoadRenderTexture(width, height);
+    SetTextureFilter(postProcessTarget_.texture, TEXTURE_FILTER_BILINEAR);
+  }
 }
 
 void View3D::Reset() {
@@ -160,11 +200,17 @@ void View3D::Reset() {
     UnloadRenderTexture(target_);
     target_ = {0};
   }
+  if (postProcessTarget_.id != 0) {
+    UnloadRenderTexture(postProcessTarget_);
+    postProcessTarget_ = {0};
+  }
 }
 
 void View3D::SetCornerRadius(float radius) { cornerRadius_ = radius; }
 
-int View3D::Render(Rectangle bounds, std::function<void()> renderCallback) {
+int View3D::Render(Rectangle bounds, std::function<void()> renderCallback,
+                   Shader postProcessShader,
+                   std::function<void(int width, int height)> setPostProcessUniforms) {
   if (!shaderLoaded_) {
     LoadRoundedShader();
   }
@@ -197,6 +243,15 @@ int View3D::Render(Rectangle bounds, std::function<void()> renderCallback) {
   // 1. Render scene to texture
   // IMPORTANT: We must disable any active scissor (from UI layout) because
   // it uses Screen Coordinates, which don't map correctly to FBO Coordinates.
+  // Save TabContent scissor state before ending it
+  Rectangle savedTabScissor = GetTabContentScissorBounds();
+  bool hadTabScissor = (savedTabScissor.width != (float)GetScreenWidth() || 
+                        savedTabScissor.height != (float)GetScreenHeight());
+  
+  // Flush any pending draw commands before switching to FBO
+  // This ensures all UI drawn so far is committed to the screen framebuffer,
+  // preventing flickering on WebGL where EndTextureMode() resets to framebuffer 0.
+  rlDrawRenderBatchActive();
   EndScissorMode();
 
   BeginTextureMode(target_);
@@ -204,64 +259,92 @@ int View3D::Render(Rectangle bounds, std::function<void()> renderCallback) {
   if (renderCallback) {
     renderCallback();
   }
+  
+  // 2. Apply post-process shader if provided (render to postProcessTarget_)
+  Texture2D finalTexture = target_.texture;
+  if (postProcessShader.id != 0 && postProcessShader.id != rlGetShaderIdDefault()) {
+    // Switch directly from target_ FBO to postProcessTarget_ FBO without going through screen FB
+    // This eliminates flickering on WebGL by avoiding unnecessary screen-framebuffer round-trips
+    rlDrawRenderBatchActive();
+    rlEnableFramebuffer(postProcessTarget_.id);
+    rlViewport(0, 0, postProcessTarget_.texture.width, postProcessTarget_.texture.height);
+    rlMatrixMode(RL_PROJECTION);
+    rlLoadIdentity();
+    rlOrtho(0, postProcessTarget_.texture.width, postProcessTarget_.texture.height, 0, 0.0f, 1.0f);
+    rlMatrixMode(RL_MODELVIEW);
+    rlLoadIdentity();
+    
+    ClearBackground(BLANK);
+    BeginShaderMode(postProcessShader);
+    int texture0Loc = GetShaderLocation(postProcessShader, "texture0");
+    if (texture0Loc >= 0) {
+      SetShaderValueTexture(postProcessShader, texture0Loc, target_.texture);
+    }
+    if (setPostProcessUniforms) {
+      setPostProcessUniforms(width, height);
+    }
+    Rectangle source = {0.0f, 0.0f, (float)target_.texture.width, -(float)target_.texture.height};
+    Rectangle dest = {0.0f, 0.0f, (float)width, (float)height};
+    DrawTexturePro(target_.texture, source, dest, {0.0f, 0.0f}, 0.0f, WHITE);
+    
+    EndShaderMode();
+    finalTexture = postProcessTarget_.texture;
+  }
+  
   EndTextureMode();
 
-  // 2. Draw texture with rounded corner shader
-  // Apply scissor to ensure viewport stays within its bounds
-  // This works in conjunction with TabContent scissor (they intersect)
-  // Double-check bounds are still valid before drawing (defensive check)
+  // 3. Draw texture to screen (optionally with rounded corner shader)
   if (bounds.width <= 0 || bounds.height <= 0) {
     return layerId_;
   }
   
-  // Enable scissor mode to clip viewport to its exact bounds
-  // Intersect with parent scissor (TabContent, scroll containers) to prevent overflow
+  // Intersect viewport bounds with parent scissor (TabContent, scroll containers)
   Rectangle parentScissor = Layout::GetActiveScissorBounds();
   float left = std::max(bounds.x, parentScissor.x);
   float top = std::max(bounds.y, parentScissor.y);
   float right = std::min(bounds.x + bounds.width, parentScissor.x + parentScissor.width);
   float bottom = std::min(bounds.y + bounds.height, parentScissor.y + parentScissor.height);
   
-  // Apply DPI scaling for Scissor Mode
-  // Raylib's BeginScissorMode expects physical pixels if the backing store is scaled
   float scaleX = (float)GetRenderWidth() / (float)GetScreenWidth();
   float scaleY = (float)GetRenderHeight() / (float)GetScreenHeight();
   
   bool hasValidScissor = (right > left && bottom > top);
   if (!hasValidScissor) {
-    // If we have no valid visible area (e.g. scrolled off or empty bounds), don't render
-    // This prevents drawing the full texture over everything if bounds are 0,0 or Layout failed
     layerId_ = -1;
     return -1;
   }
 
-  // Use scaled coordinates for Scissor
   BeginScissorMode((int)(left * scaleX), (int)(top * scaleY), 
                   (int)((right - left) * scaleX), (int)((bottom - top) * scaleY));
   
-  BeginShaderMode(shader_);
+  // Apply rounded corner shader if loaded
+  if (shaderLoaded_ && shader_.id != rlGetShaderIdDefault()) {
+    BeginShaderMode(shader_);
+    float resolution[2] = {(float)width, (float)height};
+    SetShaderValue(shader_, shaderLocResolution_, resolution, SHADER_UNIFORM_VEC2);
+    SetShaderValue(shader_, shaderLocRadius_, &cornerRadius_, SHADER_UNIFORM_FLOAT);
+  }
 
-  // Pass texture resolution to shader (shader works in texture coordinate space)
-  // The shader calculates rounded corners based on texture dimensions
-  // Scissor mode ensures the viewport doesn't draw outside its screen bounds
-  float resolution[2] = {(float)width, (float)height};
-  SetShaderValue(shader_, shaderLocResolution_, resolution,
-                 SHADER_UNIFORM_VEC2);
-  SetShaderValue(shader_, shaderLocRadius_, &cornerRadius_,
-                 SHADER_UNIFORM_FLOAT);
-
-  // Draw texture flipped vertically because of OpenGL coordinates
-  Rectangle source = {0.0f, 0.0f, (float)target_.texture.width,
-                      -(float)target_.texture.height};
+  Rectangle source = {0.0f, 0.0f, (float)finalTexture.width,
+                      -(float)finalTexture.height};
   Rectangle dest = bounds;
   Vector2 origin = {0.0f, 0.0f};
 
-  DrawTexturePro(target_.texture, source, dest, origin, 0.0f, WHITE);
+  DrawTexturePro(finalTexture, source, dest, origin, 0.0f, WHITE);
 
-  EndShaderMode();
+  if (shaderLoaded_ && shader_.id != rlGetShaderIdDefault()) {
+    EndShaderMode();
+  }
   
-  // End scissor mode after drawing (only if we started it)
   EndScissorMode();
+  
+  // Restore TabContent scissor if it was active before we disabled it
+  if (hadTabScissor) {
+    float scaleX = (float)GetRenderWidth() / (float)GetScreenWidth();
+    float scaleY = (float)GetRenderHeight() / (float)GetScreenHeight();
+    BeginScissorMode((int)(savedTabScissor.x * scaleX), (int)(savedTabScissor.y * scaleY),
+                     (int)(savedTabScissor.width * scaleX), (int)(savedTabScissor.height * scaleY));
+  }
 
   return layerId_;
 }

@@ -1,9 +1,11 @@
 #include "raym3/components/RadioButton.h"
 #include "raym3/components/Dialog.h"
+#include "raym3/components/Tooltip.h"
 #include "raym3/layout/Layout.h"
 #include "raym3/rendering/Renderer.h"
 #include "raym3/styles/Theme.h"
 #include "raymath.h"
+#include <map>
 
 #if RAYM3_USE_INPUT_LAYERS
 #include "raym3/input/InputLayer.h"
@@ -11,8 +13,11 @@
 
 namespace raym3 {
 
+static int focusedRadioId_ = -1;
+static int currentRadioId_ = 0;
+
 bool RadioButtonComponent::Render(const char *label, Rectangle bounds,
-                                  bool selected) {
+                                  bool selected, const RadioButtonOptions* options) {
   ColorScheme &scheme = Theme::GetColorScheme();
 
   // MD3 Specs:
@@ -47,6 +52,29 @@ bool RadioButtonComponent::Render(const char *label, Rectangle bounds,
     isHovered = false;
     isPressed = false;
     isClicked = false;
+  }
+  
+  int thisId = currentRadioId_++;
+  bool isFocused = (focusedRadioId_ == thisId);
+  
+  // Keyboard navigation
+  if (isHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    focusedRadioId_ = thisId;
+    isFocused = true;
+  }
+  
+  if (isFocused && (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER))) {
+    isClicked = true;
+  }
+  
+  if (CheckCollisionPointRec(GetMousePosition(), bounds)) {
+    RequestCursor(MOUSE_CURSOR_POINTING_HAND);
+  }
+  
+  // Lose focus when clicking anywhere outside (raw check, bypass input layers)
+  if (isFocused && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !CheckCollisionPointRec(GetMousePosition(), bounds)) {
+    focusedRadioId_ = -1;
+    isFocused = false;
   }
 
   ComponentState state = ComponentState::Default;
@@ -132,6 +160,13 @@ bool RadioButtonComponent::Render(const char *label, Rectangle bounds,
     InputLayerManager::ConsumeInput();
   }
 #endif
+
+  // Tooltip
+  if (options && options->tooltip && isHovered) {
+    TooltipOptions tooltipOpts;
+    tooltipOpts.placement = options->tooltipPlacement;
+    Tooltip(bounds, options->tooltip, tooltipOpts);
+  }
 
   return isClicked;
 }

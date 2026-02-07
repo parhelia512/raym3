@@ -21,6 +21,8 @@ void Shutdown();
 void BeginFrame();
 void EndFrame();
 
+void RequestCursor(int cursor);
+
 #if RAYM3_USE_INPUT_LAYERS
 void PushLayer(int zOrder = 0);
 void PopLayer();
@@ -85,6 +87,8 @@ struct MenuItem {
   bool isDivider = false;
   bool isGap = false;
   bool disabled = false;
+  const char *tooltip = nullptr;
+  TooltipPlacement tooltipPlacement = TooltipPlacement::Auto;
 };
 
 void Menu(Rectangle bounds, const MenuItem *items, int itemCount,

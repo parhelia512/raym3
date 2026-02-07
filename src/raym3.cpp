@@ -29,6 +29,8 @@
 
 namespace raym3 {
 
+static int s_requestedCursor = MOUSE_CURSOR_DEFAULT;
+
 static bool initialized = false;
 static bool darkMode = false;
 
@@ -56,9 +58,14 @@ void Shutdown() {
   initialized = false;
 }
 
+void RequestCursor(int cursor) {
+  s_requestedCursor = cursor;
+}
+
 void BeginFrame() {
   if (!initialized)
     Initialize();
+  s_requestedCursor = MOUSE_CURSOR_DEFAULT;
   TextFieldComponent::ResetFieldId();
   SliderComponent::ResetFieldId();
   RangeSliderComponent::ResetFieldId();
@@ -70,6 +77,8 @@ void BeginFrame() {
 }
 
 void EndFrame() {
+  SetMouseCursor(s_requestedCursor);
+
   // Render any pending tooltips (deferred to ensure they're on top)
   TooltipManager::Update();
 

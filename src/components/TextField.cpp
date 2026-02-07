@@ -36,12 +36,14 @@ struct TextFieldState {
   bool isSelecting = false;
   float lastClickTime = 0.0f;
   int lastClickPosition = -1;
+  int clickCount = 0;
 
   std::vector<std::string> undoHistory;
   int undoIndex = -1;
   bool isUndoRedoOperation = false;
 
   int lastActiveFrame = -1;
+  bool wasFocused = false;
 };
 
 static int activeFieldId_ = -1;
@@ -265,6 +267,9 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
 
   bool isFocused = (activeFieldId_ == fieldId);
 
+  bool justBlurred = fieldState.wasFocused && !isFocused;
+  fieldState.wasFocused = isFocused;
+
   if (options.disabled) {
     activeFieldId_ = -1;
   }
@@ -344,7 +349,7 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
 
   float iconSize = 24.0f;
   float iconPadding = 12.0f;
-  float basePadding = 16.0f;
+  float basePadding = 8.0f;
   float textPadding = basePadding * 2.0f;
 
   if (options.leadingIcon) {
@@ -431,24 +436,36 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
     float currentTime = GetTime();
     bool isDoubleClick =
         (currentTime - fieldState.lastClickTime < 0.3f) &&
-        (abs(clickPosition - fieldState.lastClickPosition) < 3);
+        (abs(clickPosition - fieldState.lastClickPosition) < 3) &&
+        (fieldState.clickCount == 1);
+    bool isTripleClick = 
+        (currentTime - fieldState.lastClickTime < 0.3f) &&
+        (abs(clickPosition - fieldState.lastClickPosition) < 3) &&
+        (fieldState.clickCount == 2);
 
-    if (isDoubleClick) {
+    if (isTripleClick) {
+      fieldState.selectionStart = 0;
+      fieldState.selectionEnd = len;
+      fieldState.cursorPosition = len;
+      fieldState.clickCount = 3;
+    } else if (isDoubleClick) {
       int wordStart, wordEnd;
       FindWordBoundaries(buffer, clickPosition, wordStart, wordEnd);
       fieldState.selectionStart = wordStart;
       fieldState.selectionEnd = wordEnd;
       fieldState.cursorPosition = wordEnd;
+      fieldState.clickCount = 2;
     } else {
       fieldState.selectionStart = -1;
       fieldState.selectionEnd = -1;
       fieldState.cursorPosition = clickPosition;
+      fieldState.clickCount = 1;
     }
 
     fieldState.lastClickTime = currentTime;
     fieldState.lastClickPosition = clickPosition;
     fieldState.isSelecting = true;
-    fieldState.lastBlinkTime = GetTime(); // Always reset blink on click
+    fieldState.lastBlinkTime = GetTime();
 
     if (!wasFocused) {
       fieldState.lastValue = std::string(buffer ? buffer : "");
@@ -466,6 +483,19 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
     float dragRelativeX = mousePos.x - (textStartX - fieldScroll);
     int len = (int)strlen(buffer ? buffer : "");
     int dragPosition = len;
+
+    float autoScrollSpeed = 300.0f * GetFrameTime();
+    if (mousePos.x < textStartX) {
+      float distance = textStartX - mousePos.x;
+      float scrollAmount = std::min(autoScrollSpeed * (distance / 50.0f), autoScrollSpeed * 2.0f);
+      fieldState.scrollOffset = std::max(0.0f, fieldState.scrollOffset - scrollAmount);
+    } else if (mousePos.x > textEndX) {
+      float distance = mousePos.x - textEndX;
+      float scrollAmount = std::min(autoScrollSpeed * (distance / 50.0f), autoScrollSpeed * 2.0f);
+      Vector2 totalSize = Renderer::MeasureText(buffer, 16.0f, FontWeight::Regular);
+      float maxScroll = std::max(0.0f, totalSize.x - availableWidth);
+      fieldState.scrollOffset = std::min(maxScroll, fieldState.scrollOffset + scrollAmount);
+    }
 
     if (len > 0) {
       float closestDiff = 10000.0f;
@@ -493,6 +523,10 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
   }
 
   ComponentState state = GetTextFieldState(bounds, fieldId, options.disabled);
+
+  if ((state == ComponentState::Hovered || isFocused) && !options.disabled && !options.readOnly) {
+    RequestCursor(MOUSE_CURSOR_IBEAM);
+  }
 
   ColorScheme &scheme = Theme::GetColorScheme();
   float cornerRadius = Theme::GetShapeTokens().cornerMedium;
@@ -538,21 +572,18 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
 
   float availableWidthForScroll = textEndX - textStartX;
 
-  // Update scroll offset if focused
   if (activeFieldId_ == fieldId) {
     std::string textBeforeCursor(buffer, fieldState.cursorPosition);
     Vector2 cursorSize = Renderer::MeasureText(textBeforeCursor.c_str(), 16.0f,
                                                FontWeight::Regular);
     float cursorX = cursorSize.x;
 
-    // Scroll to keep cursor in view
     if (cursorX - fieldState.scrollOffset > availableWidthForScroll) {
       fieldState.scrollOffset = cursorX - availableWidthForScroll;
     } else if (cursorX - fieldState.scrollOffset < 0) {
       fieldState.scrollOffset = cursorX;
     }
 
-    // Clamp scroll
     Vector2 totalSize =
         Renderer::MeasureText(buffer, 16.0f, FontWeight::Regular);
     float maxScroll = std::max(0.0f, totalSize.x - availableWidthForScroll);
@@ -560,17 +591,29 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
       fieldState.scrollOffset = maxScroll;
     if (fieldState.scrollOffset < 0)
       fieldState.scrollOffset = 0;
+  } else {
+    Vector2 totalSize =
+        Renderer::MeasureText(buffer ? buffer : "", 16.0f, FontWeight::Regular);
+    if (totalSize.x > availableWidthForScroll) {
+      fieldState.scrollOffset = totalSize.x - availableWidthForScroll;
+    } else {
+      fieldState.scrollOffset = 0.0f;
+    }
   }
 
-  float currentScroll =
-      (activeFieldId_ == fieldId) ? fieldState.scrollOffset : 0.0f;
+  float currentScroll = fieldState.scrollOffset;
 
   // Expand scissor by 1px on left to ensure cursor at position 0 is visible
-  BeginScissorMode((int)textStartX - 1, (int)inputBounds.y,
-                   (int)availableWidth + 1, (int)inputBounds.height);
+  int scissorWidth = (int)availableWidth + 1;
+  int scissorHeight = (int)inputBounds.height;
+  bool scissorActive = false;
+  if (scissorWidth > 0 && scissorHeight > 0) {
+    BeginScissorMode((int)textStartX - 1, (int)inputBounds.y, scissorWidth, scissorHeight);
+    scissorActive = true;
+  }
 
   bool isEmpty = !buffer || strlen(buffer) == 0;
-  bool showPlaceholder = isEmpty && !isFocused && options.placeholder;
+  bool showPlaceholder = isEmpty && options.placeholder;
 
   // Only render raym3 text/cursor/selection if native input is NOT active FOR
   // THIS FIELD When native input is active, the NSTextField handles all visual
@@ -614,6 +657,23 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
       }
       Renderer::DrawText(displayText, textPos, 16.0f, textColorToUse,
                          FontWeight::Regular);
+      
+      if (!isFocused) {
+        Vector2 totalSize = Renderer::MeasureText(displayText, 16.0f, FontWeight::Regular);
+        if (totalSize.x > availableWidth) {
+          float fadeWidth = 12.0f;
+          float fadeStartX = textEndX - fadeWidth;
+          for (int i = 0; i < (int)fadeWidth; i++) {
+            float alpha = (float)i / fadeWidth;
+            Color fadeColor = bgColor;
+            if (options.variant == TextFieldVariant::Filled && options.drawBackground) {
+              fadeColor = (options.backgroundColor.a > 0) ? options.backgroundColor : scheme.surfaceContainerHighest;
+            }
+            DrawRectangle((int)(fadeStartX + i), (int)inputBounds.y, 1, (int)inputBounds.height, 
+                          ColorAlpha(fadeColor, alpha));
+          }
+        }
+      }
     }
   }
 
@@ -630,7 +690,7 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
       if (IsKeyPressed(KEY_LEFT)) {
         shouldMove = true;
         fieldState.arrowLeftTimer = GetTime() + 0.5;
-        fieldState.lastBlinkTime = GetTime(); // Reset blink
+        fieldState.lastBlinkTime = GetTime();
       } else if (GetTime() > fieldState.arrowLeftTimer) {
         shouldMove = true;
         fieldState.arrowLeftTimer = GetTime() + 0.05;
@@ -638,25 +698,35 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
 
       if (shouldMove) {
         int targetPos = fieldState.cursorPosition;
-        if (isCmdDown || IsKeyDown(KEY_HOME)) {
-          targetPos = 0;
-        } else if (isAltDown) {
-          targetPos = GetPrevWordPos(buffer, targetPos);
-        } else if (targetPos > 0) {
-          targetPos--;
-        }
-
-        if (shiftPressed) {
-          if (fieldState.selectionStart == -1) {
-            fieldState.selectionStart = fieldState.cursorPosition;
-          }
-          fieldState.selectionEnd = targetPos;
-          fieldState.cursorPosition = targetPos;
-          // Do NOT normalize selection in state here, keep directionality
-        } else {
+        
+        if (!shiftPressed && fieldState.selectionStart != -1 && fieldState.selectionEnd != -1) {
+          int sStart = fieldState.selectionStart;
+          int sEnd = fieldState.selectionEnd;
+          NormalizeSelection(sStart, sEnd);
+          targetPos = sStart;
           fieldState.selectionStart = -1;
           fieldState.selectionEnd = -1;
           fieldState.cursorPosition = targetPos;
+        } else {
+          if (isCmdDown) {
+            targetPos = 0;
+          } else if (isAltDown) {
+            targetPos = GetPrevWordPos(buffer, targetPos);
+          } else if (targetPos > 0) {
+            targetPos--;
+          }
+
+          if (shiftPressed) {
+            if (fieldState.selectionStart == -1) {
+              fieldState.selectionStart = fieldState.cursorPosition;
+            }
+            fieldState.selectionEnd = targetPos;
+            fieldState.cursorPosition = targetPos;
+          } else {
+            fieldState.selectionStart = -1;
+            fieldState.selectionEnd = -1;
+            fieldState.cursorPosition = targetPos;
+          }
         }
       }
     }
@@ -666,7 +736,7 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
       if (IsKeyPressed(KEY_RIGHT)) {
         shouldMove = true;
         fieldState.arrowRightTimer = GetTime() + 0.5;
-        fieldState.lastBlinkTime = GetTime(); // Reset blink
+        fieldState.lastBlinkTime = GetTime();
       } else if (GetTime() > fieldState.arrowRightTimer) {
         shouldMove = true;
         fieldState.arrowRightTimer = GetTime() + 0.05;
@@ -675,27 +745,71 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
       if (shouldMove) {
         int len = (int)strlen(buffer ? buffer : "");
         int targetPos = fieldState.cursorPosition;
-
-        if (isCmdDown || IsKeyDown(KEY_END)) {
-          targetPos = len;
-        } else if (isAltDown) {
-          targetPos = GetNextWordPos(buffer, targetPos);
-        } else if (targetPos < len) {
-          targetPos++;
-        }
-
-        if (shiftPressed) {
-          if (fieldState.selectionStart == -1) {
-            fieldState.selectionStart = fieldState.cursorPosition;
-          }
-          fieldState.selectionEnd = targetPos;
-          fieldState.cursorPosition = targetPos;
-          // Do NOT normalize selection in state here, keep directionality
-        } else {
+        
+        if (!shiftPressed && fieldState.selectionStart != -1 && fieldState.selectionEnd != -1) {
+          int sStart = fieldState.selectionStart;
+          int sEnd = fieldState.selectionEnd;
+          NormalizeSelection(sStart, sEnd);
+          targetPos = sEnd;
           fieldState.selectionStart = -1;
           fieldState.selectionEnd = -1;
           fieldState.cursorPosition = targetPos;
+        } else {
+          if (isCmdDown) {
+            targetPos = len;
+          } else if (isAltDown) {
+            targetPos = GetNextWordPos(buffer, targetPos);
+          } else if (targetPos < len) {
+            targetPos++;
+          }
+
+          if (shiftPressed) {
+            if (fieldState.selectionStart == -1) {
+              fieldState.selectionStart = fieldState.cursorPosition;
+            }
+            fieldState.selectionEnd = targetPos;
+            fieldState.cursorPosition = targetPos;
+          } else {
+            fieldState.selectionStart = -1;
+            fieldState.selectionEnd = -1;
+            fieldState.cursorPosition = targetPos;
+          }
         }
+      }
+    }
+
+    if (IsKeyPressed(KEY_HOME)) {
+      fieldState.lastBlinkTime = GetTime();
+      int targetPos = 0;
+      
+      if (shiftPressed) {
+        if (fieldState.selectionStart == -1) {
+          fieldState.selectionStart = fieldState.cursorPosition;
+        }
+        fieldState.selectionEnd = targetPos;
+        fieldState.cursorPosition = targetPos;
+      } else {
+        fieldState.selectionStart = -1;
+        fieldState.selectionEnd = -1;
+        fieldState.cursorPosition = targetPos;
+      }
+    }
+
+    if (IsKeyPressed(KEY_END)) {
+      fieldState.lastBlinkTime = GetTime();
+      int len = (int)strlen(buffer ? buffer : "");
+      int targetPos = len;
+      
+      if (shiftPressed) {
+        if (fieldState.selectionStart == -1) {
+          fieldState.selectionStart = fieldState.cursorPosition;
+        }
+        fieldState.selectionEnd = targetPos;
+        fieldState.cursorPosition = targetPos;
+      } else {
+        fieldState.selectionStart = -1;
+        fieldState.selectionEnd = -1;
+        fieldState.cursorPosition = targetPos;
       }
     }
 
@@ -775,7 +889,7 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
       }
 
       if (shouldDelete) {
-        fieldState.lastBlinkTime = GetTime(); // Reset blink
+        fieldState.lastBlinkTime = GetTime();
         if (hasSelection) {
           int sStart = fieldState.selectionStart;
           int sEnd = fieldState.selectionEnd;
@@ -789,6 +903,23 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
           fieldState.cursorPosition = sStart;
           fieldState.selectionStart = -1;
           fieldState.selectionEnd = -1;
+          fieldState.lastValue = std::string(buffer);
+        } else if (isCmdDown && fieldState.cursorPosition > 0) {
+          SaveToHistory(fieldState, std::string(buffer ? buffer : ""),
+                        options.maxUndoHistory);
+          int len = (int)strlen(buffer);
+          memmove(&buffer[0], &buffer[fieldState.cursorPosition],
+                  (size_t)(len - fieldState.cursorPosition + 1));
+          fieldState.cursorPosition = 0;
+          fieldState.lastValue = std::string(buffer);
+        } else if (isAltDown && fieldState.cursorPosition > 0) {
+          int prevWordPos = GetPrevWordPos(buffer, fieldState.cursorPosition);
+          SaveToHistory(fieldState, std::string(buffer ? buffer : ""),
+                        options.maxUndoHistory);
+          int len = (int)strlen(buffer);
+          memmove(&buffer[prevWordPos], &buffer[fieldState.cursorPosition],
+                  (size_t)(len - fieldState.cursorPosition + 1));
+          fieldState.cursorPosition = prevWordPos;
           fieldState.lastValue = std::string(buffer);
         } else if (fieldState.cursorPosition > 0) {
           SaveToHistory(fieldState, std::string(buffer ? buffer : ""),
@@ -805,15 +936,26 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
 
     if (IsKeyPressed(KEY_DELETE)) {
       if (hasSelection) {
+        int sStart = fieldState.selectionStart;
+        int sEnd = fieldState.selectionEnd;
+        NormalizeSelection(sStart, sEnd);
+        
         SaveToHistory(fieldState, std::string(buffer ? buffer : ""),
                       options.maxUndoHistory);
         int len = (int)strlen(buffer);
-        memmove(&buffer[fieldState.selectionStart],
-                &buffer[fieldState.selectionEnd],
-                (size_t)(len - fieldState.selectionEnd + 1));
-        fieldState.cursorPosition = fieldState.selectionStart;
+        memmove(&buffer[sStart], &buffer[sEnd],
+                (size_t)(len - sEnd + 1));
+        fieldState.cursorPosition = sStart;
         fieldState.selectionStart = -1;
         fieldState.selectionEnd = -1;
+        fieldState.lastValue = std::string(buffer);
+      } else if (isAltDown && fieldState.cursorPosition < (int)strlen(buffer)) {
+        int nextWordPos = GetNextWordPos(buffer, fieldState.cursorPosition);
+        SaveToHistory(fieldState, std::string(buffer ? buffer : ""),
+                      options.maxUndoHistory);
+        int len = (int)strlen(buffer);
+        memmove(&buffer[fieldState.cursorPosition], &buffer[nextWordPos],
+                (size_t)(len - nextWordPos + 1));
         fieldState.lastValue = std::string(buffer);
       } else if (fieldState.cursorPosition < (int)strlen(buffer)) {
         SaveToHistory(fieldState, std::string(buffer ? buffer : ""),
@@ -982,6 +1124,16 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
       }
     }
 
+    if (IsKeyPressed(KEY_ESCAPE)) {
+      strncpy(buffer, fieldState.lastValue.c_str(), bufferSize - 1);
+      buffer[bufferSize - 1] = '\0';
+      fieldState.cursorPosition = (int)strlen(buffer);
+      fieldState.selectionStart = -1;
+      fieldState.selectionEnd = -1;
+      activeFieldId_ = -1;
+      return false;
+    }
+
     if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) {
       fieldState.lastValue = std::string(buffer ? buffer : "");
       activeFieldId_ = -1;
@@ -991,7 +1143,9 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
     }
   }
 
-  EndScissorMode();
+  if (scissorActive) {
+    EndScissorMode();
+  }
 
   if (options.leadingIcon) {
     Color iconColor = scheme.onSurfaceVariant;
@@ -1020,6 +1174,10 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
     InputLayerManager::ConsumeInput();
   }
 #endif
+
+  if (justBlurred) {
+    return true;
+  }
 
   return false;
 }

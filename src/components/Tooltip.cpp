@@ -25,11 +25,32 @@ Rectangle TooltipManager::lastAnchor_ = {0, 0, 0, 0};
 bool TooltipManager::isVisible_ = false;
 bool TooltipManager::mouseOverTooltip_ = false;
 
+// Smart timing state
+static bool tooltipSessionActive_ = false;
+static float sessionTimeout_ = 2000.0f;
+static float lastTooltipTime_ = 0.0f;
+
 //-----------------------------------------------------------------------------
 // Helper: Check if two rectangles are the same anchor
 //-----------------------------------------------------------------------------
 static bool IsSameAnchor(Rectangle a, Rectangle b) {
   return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
+}
+
+//-----------------------------------------------------------------------------
+// Smart timing helpers
+//-----------------------------------------------------------------------------
+static float GetSmartTooltipDelay(float requestedDelayMs) {
+  float currentTime = GetTime() * 1000.0f;
+  if (tooltipSessionActive_ && (currentTime - lastTooltipTime_) < sessionTimeout_) {
+    return 50.0f; // Instant (50ms) after first tooltip in session
+  }
+  return requestedDelayMs; // Use requested delay for first tooltip
+}
+
+static void OnTooltipShown() {
+  tooltipSessionActive_ = true;
+  lastTooltipTime_ = GetTime() * 1000.0f;
 }
 
 //-----------------------------------------------------------------------------
@@ -113,13 +134,18 @@ void TooltipManager::RequestTooltip(Rectangle anchor, const char *text,
     mouseOverTooltip_ = false;
   }
 
-  // Check if we should show the tooltip
-  if (hoverTimer_ >= options.delayMs) {
+  // Check if we should show the tooltip (use smart timing)
+  float effectiveDelay = GetSmartTooltipDelay(options.delayMs);
+  if (hoverTimer_ >= effectiveDelay) {
     hasRequest_ = true;
     anchorBounds_ = anchor;
     text_ = text ? text : "";
     sourceLayer_ = sourceLayer;
     options_ = options;
+    
+    if (!isVisible_) {
+      OnTooltipShown();
+    }
     isVisible_ = true;
   }
 }

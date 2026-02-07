@@ -1,9 +1,11 @@
 #include "raym3/components/Checkbox.h"
 #include "raym3/components/Dialog.h"
+#include "raym3/components/Tooltip.h"
 #include "raym3/layout/Layout.h"
 #include "raym3/rendering/Renderer.h"
 #include "raym3/styles/Theme.h"
 #include <raylib.h>
+#include <map>
 
 #if RAYM3_USE_INPUT_LAYERS
 #include "raym3/input/InputLayer.h"
@@ -11,8 +13,12 @@
 
 namespace raym3 {
 
+static int focusedCheckboxId_ = -1;
+static int currentCheckboxId_ = 0;
+static std::map<int, Rectangle> checkboxBounds_;
+
 bool CheckboxComponent::Render(const char *label, Rectangle bounds,
-                               bool *checked) {
+                               bool *checked, const CheckboxOptions* options) {
   if (!checked)
     return false;
 
@@ -119,12 +125,45 @@ bool CheckboxComponent::Render(const char *label, Rectangle bounds,
                  CheckCollisionPointRec(GetMousePosition(), bounds) &&
                  IsMouseButtonReleased(MOUSE_BUTTON_LEFT);
 #endif
+  
+  int thisId = currentCheckboxId_++;
+  checkboxBounds_[thisId] = bounds;
+  bool isFocused = (focusedCheckboxId_ == thisId);
+  bool isHovered = CheckCollisionPointRec(GetMousePosition(), bounds);
+  
+  // Keyboard navigation
+  if (isHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    focusedCheckboxId_ = thisId;
+    isFocused = true;
+  }
+  
+  if (isFocused && (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER))) {
+    clicked = true;
+  }
+  
+  if (CheckCollisionPointRec(GetMousePosition(), bounds) && !inputBlocked) {
+    RequestCursor(MOUSE_CURSOR_POINTING_HAND);
+  }
+  
+  // Lose focus when clicking anywhere outside (raw check, bypass input layers)
+  if (isFocused && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !CheckCollisionPointRec(GetMousePosition(), bounds)) {
+    focusedCheckboxId_ = -1;
+    isFocused = false;
+  }
+
   if (!inputBlocked && clicked) {
     *checked = !*checked;
 #if RAYM3_USE_INPUT_LAYERS
     InputLayerManager::ConsumeInput();
 #endif
     return true;
+  }
+  
+  // Tooltip
+  if (options && options->tooltip && isHovered) {
+    TooltipOptions tooltipOpts;
+    tooltipOpts.placement = options->tooltipPlacement;
+    Tooltip(bounds, options->tooltip, tooltipOpts);
   }
 
   return false;

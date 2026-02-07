@@ -1,17 +1,26 @@
 #include "raym3/components/Menu.h"
 #include "raym3/components/Dialog.h"
+#include "raym3/components/Tooltip.h"
 #include "raym3/layout/Layout.h"
-#include "raym3/raym3.h" // For MenuItem definition
+#include "raym3/raym3.h"
 #include "raym3/rendering/Renderer.h"
-#include "raym3/rendering/SvgRenderer.h" // For icons
+#include "raym3/rendering/SvgRenderer.h"
 #include "raym3/styles/Theme.h"
 #include <raylib.h>
+#include <string>
+#include <algorithm>
 
 #if RAYM3_USE_INPUT_LAYERS
 #include "raym3/input/InputLayer.h"
 #endif
 
 namespace raym3 {
+
+// Keyboard navigation state
+static int s_focusedMenuItem = -1;
+static std::string s_menuTypeaheadBuffer;
+static float s_menuTypeaheadTime = 0.0f;
+static const float kMenuTypeaheadTimeout = 0.5f;
 
 void MenuComponent::Render(Rectangle bounds, const MenuItem *items,
                            int itemCount, int *selected, bool iconOnly) {
@@ -91,6 +100,10 @@ void MenuComponent::Render(Rectangle bounds, const MenuItem *items,
 
       // Interaction
       bool canInteract = !items[i].disabled && !inputBlocked;
+      
+      if (CheckCollisionPointRec(GetMousePosition(), itemBounds) && canInteract) {
+        RequestCursor(MOUSE_CURSOR_POINTING_HAND);
+      }
 
 #if RAYM3_USE_INPUT_LAYERS
       bool canProcessInput =
@@ -112,6 +125,13 @@ void MenuComponent::Render(Rectangle bounds, const MenuItem *items,
         }
       }
 #endif
+
+      // Tooltip support
+      if (items[i].tooltip && state == ComponentState::Hovered) {
+        TooltipOptions tooltipOpts;
+        tooltipOpts.placement = items[i].tooltipPlacement;
+        Tooltip(itemBounds, items[i].tooltip, tooltipOpts);
+      }
 
       currentX += iconSize + padding;
     }

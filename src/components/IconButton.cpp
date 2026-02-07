@@ -1,9 +1,11 @@
 #include "raym3/components/IconButton.h"
 #include "raym3/components/Dialog.h"
 #include "raym3/components/Icon.h"
+#include "raym3/components/Tooltip.h"
 #include "raym3/layout/Layout.h"
 #include "raym3/rendering/Renderer.h"
 #include "raym3/styles/Theme.h"
+#include <map>
 
 #if RAYM3_USE_INPUT_LAYERS
 #include "raym3/input/InputLayer.h"
@@ -11,10 +13,14 @@
 
 namespace raym3 {
 
+static int focusedIconButtonId_ = -1;
+static int currentIconButtonId_ = 0;
+
 bool IconButtonComponent::Render(const char *iconName, Rectangle bounds,
                                  ButtonVariant variant,
                                  IconVariation iconVariation,
-                                 Color iconColorOverride) {
+                                 Color iconColorOverride,
+                                 const IconButtonOptions* options) {
   // Interaction
   Vector2 mousePos = GetMousePosition();
   
@@ -33,6 +39,27 @@ bool IconButtonComponent::Render(const char *iconName, Rectangle bounds,
   if (DialogComponent::IsActive() && !DialogComponent::IsRendering()) {
     isHovered = false;
     isPressed = false;
+  }
+  
+  int thisId = currentIconButtonId_++;
+  bool isFocused = (focusedIconButtonId_ == thisId);
+  
+  // Keyboard navigation
+  if (isHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    focusedIconButtonId_ = thisId;
+    isFocused = true;
+  }
+  
+  bool keyActivated = isFocused && (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER));
+  
+  if (CheckCollisionPointRec(GetMousePosition(), bounds)) {
+    RequestCursor(MOUSE_CURSOR_POINTING_HAND);
+  }
+  
+  // Lose focus when clicking anywhere outside (raw check, bypass input layers)
+  if (isFocused && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !CheckCollisionPointRec(GetMousePosition(), bounds)) {
+    focusedIconButtonId_ = -1;
+    isFocused = false;
   }
 
   ComponentState state = GetState(bounds);
@@ -107,13 +134,20 @@ bool IconButtonComponent::Render(const char *iconName, Rectangle bounds,
 
   IconComponent::Render(iconName, iconBounds, iconVariation, iconColor);
 
-  bool wasClicked = isHovered && IsMouseButtonReleased(MOUSE_BUTTON_LEFT);
+  bool wasClicked = (isHovered && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) || keyActivated;
   
 #if RAYM3_USE_INPUT_LAYERS
   if (isHovered || wasClicked) {
     InputLayerManager::ConsumeInput();
   }
 #endif
+  
+  // Tooltip
+  if (options && options->tooltip && isHovered) {
+    TooltipOptions tooltipOpts;
+    tooltipOpts.placement = options->tooltipPlacement;
+    Tooltip(bounds, options->tooltip, tooltipOpts);
+  }
   
   return wasClicked;
 }
