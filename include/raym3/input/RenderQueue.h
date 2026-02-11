@@ -27,6 +27,7 @@ enum class ComponentType {
 struct RenderCommand {
   std::function<void()> renderFunc;
   Rectangle bounds;
+  Rectangle clipRect;
   int layerId;
   int zOrder;
   ComponentType type;

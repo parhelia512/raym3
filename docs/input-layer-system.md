@@ -21,6 +21,7 @@ add_subdirectory(raym3)
 - **Layer Stack**: Layers are managed with a stack (`PushLayer()` / `PopLayer()`).
 - **Blocking Regions**: Components can register themselves as blocking regions.
 - **Input Capture**: For drag operations, you can require that the drag starts within the component bounds.
+- **Overlay Threshold**: Layers with `zOrder >= 100` bypass layout scissor clipping. Use for menus, tooltips, dialogs.
 
 ## Basic Usage
 
@@ -152,6 +153,16 @@ raym3::PushLayer(10);  // Explicit layer ID
 raym3::PopLayer();
 ```
 
+### Overlay Layers (zOrder >= 100)
+
+Layers with `zOrder >= 100` call `EndScissorMode()` when pushed, so they render above layout clipping. Use for menus, tooltips, and dialogs that must not be clipped by scroll containers.
+
+```cpp
+raym3::PushLayer(100);  // Overlay - bypasses scissor
+raym3::Menu(...);       // Menu renders above clipped content
+raym3::PopLayer();
+```
+
 ## Common Patterns
 
 ### Modal Dialog
@@ -262,7 +273,9 @@ raym3::EndFrame();
 
 4. **Layer IDs**: Layer IDs are relative. Layer 1 blocks layer 0, layer 2 blocks layers 0 and 1, etc.
 
-5. **Performance**: The input layer system has minimal overhead when disabled (`RAYM3_USE_INPUT_LAYERS=OFF`), as it compiles to no-ops.
+5. **Overlay Threshold**: Layers with `zOrder >= 100` bypass scissor clipping. Use for menus, tooltips, dialogs.
+
+6. **Performance**: The input layer system has minimal overhead when disabled (`RAYM3_USE_INPUT_LAYERS=OFF`), as it compiles to no-ops.
 
 See `examples/input_layers_test.cpp` for a complete working example.
 

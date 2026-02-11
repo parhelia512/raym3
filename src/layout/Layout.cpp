@@ -1,5 +1,6 @@
 #include "raym3/layout/Layout.h"
 #include "raym3/components/TabBar.h"
+#include "raym3/raym3.h"
 #include <map>
 #include <string>
 #include <vector>
@@ -309,18 +310,7 @@ void Layout::EndContainer() {
       if (!impl_->scrollStack.empty()) {
         const ScrollContainerState& scrollState = impl_->scrollStack.back();
         if (scrollState.scissorStarted) {
-          EndScissorMode();
-          
-          // Restore TabContent scissor if it was active (Raylib scissor doesn't stack)
-          Rectangle tabScissor = GetTabContentScissorBounds();
-          if (tabScissor.width > 0 && tabScissor.height > 0 && 
-              (tabScissor.width != GetScreenWidth() || tabScissor.height != GetScreenHeight())) {
-            // Apply DPI Scaling (HighDPI support)
-            float scaleX = (float)GetRenderWidth() / (float)GetScreenWidth();
-            float scaleY = (float)GetRenderHeight() / (float)GetScreenHeight();
-            BeginScissorMode((int)(tabScissor.x * scaleX), (int)(tabScissor.y * scaleY), 
-                             (int)(tabScissor.width * scaleX), (int)(tabScissor.height * scaleY));
-          }
+          PopScissor();
         }
         impl_->scrollStack.pop_back();
       }
@@ -644,12 +634,7 @@ Rectangle Layout::BeginScrollContainer(LayoutStyle style, bool scrollX,
     if (right > left && bottom > top) {
       Rectangle scissorBounds = {left, top, right - left, bottom - top};
 
-      // Raylib's BeginScissorMode expects physical pixels if the backing store is scaled (HighDPI)
-      float scaleX = (float)GetRenderWidth() / (float)GetScreenWidth();
-      float scaleY = (float)GetRenderHeight() / (float)GetScreenHeight();
-
-      BeginScissorMode((int)(scissorBounds.x * scaleX), (int)(scissorBounds.y * scaleY), 
-                       (int)(scissorBounds.width * scaleX), (int)(scissorBounds.height * scaleY));
+      BeginScissor(scissorBounds);
       scrollState.scissorStarted = true;
       scrollState.bounds = scissorBounds; // Store intersected bounds (Logical)
     }
@@ -785,28 +770,7 @@ void Layout::PopId() {
 }
 
 Rectangle Layout::GetActiveScissorBounds() {
-  // Start with TabContent scissor bounds (returns screen bounds if not clipping)
-  Rectangle result = GetTabContentScissorBounds();
-  
-  // If we have an active scroll container, intersect with its bounds
-  if (impl_ && !impl_->scrollStack.empty()) {
-    Rectangle scrollBounds = impl_->scrollStack.back().bounds;
-    
-    // Calculate intersection
-    float left = std::max(result.x, scrollBounds.x);
-    float top = std::max(result.y, scrollBounds.y);
-    float right = std::min(result.x + result.width, scrollBounds.x + scrollBounds.width);
-    float bottom = std::min(result.y + result.height, scrollBounds.y + scrollBounds.height);
-    
-    if (right > left && bottom > top) {
-      result = {left, top, right - left, bottom - top};
-    } else {
-      // No intersection, return empty rect
-      result = {0, 0, 0, 0};
-    }
-  }
-  
-  return result;
+  return GetCurrentScissorBounds();
 }
 
 } // namespace raym3

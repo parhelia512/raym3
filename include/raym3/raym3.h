@@ -18,6 +18,15 @@ namespace raym3 {
 void Initialize();
 void Shutdown();
 
+void BeginScissor(Rectangle bounds);
+void PushScissor(Rectangle bounds);
+void PopScissor();
+Rectangle GetCurrentScissorBounds();
+
+void SetScissorDebug(bool enabled);
+bool IsScissorDebug();
+void DrawScissorDebug();
+
 void BeginFrame();
 void EndFrame();
 

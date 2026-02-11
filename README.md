@@ -18,6 +18,7 @@ raym3 is a Material Design 3 inspired immediate-mode GUI library built on raylib
 - **Light and Dark Themes** - Full theme support with Material Design 3 color system
 - **SVG Icon Support** - Material Design icons with multiple variations (filled, outlined, round, sharp, two-tone)
 - **Zero External Dependencies** - Can be built as a standalone library (raylib is fetched automatically)
+- **Scissor Stack API** - Stack-based clipping with `PushScissor`/`PopScissor`, debug visualization
 
 ## Components
 
@@ -212,6 +213,7 @@ target_link_libraries(your_target raym3)
 - **Input Capture**: Drag operations must start within component bounds (prevents accidental drags)
 - **Explicit Z-Ordering**: Use `PushLayer(zOrder)` and `PopLayer()` to control rendering order
 - **Component Blocking**: Cards and panels automatically block input to elements beneath them
+- **Overlay Layer Threshold**: Layers with `zOrder >= 100` bypass layout scissor clipping (for menus, tooltips, dialogs)
 
 **Usage Example:**
 ```cpp
@@ -249,6 +251,10 @@ if (canProcessInput) {
     }
 }
 ```
+
+### Emscripten / WebAssembly
+
+raym3 supports building for Emscripten. The CMake configuration automatically sets `GRAPHICS_API_OPENGL_ES3` for WebAssembly targets.
 
 ### Embed Resources into Library
 
@@ -381,6 +387,13 @@ raym3 is an independent, self-contained project. All resources (icons and fonts)
 
 ## Changelog
 
+### v1.5.0 - Scissor API & Emscripten Support
+- **Scissor Stack API**: Public `PushScissor`, `PopScissor`, `BeginScissor`, `GetCurrentScissorBounds` for custom clipping regions. Scissors intersect and stack correctly.
+- **Scissor Debug**: `SetScissorDebug`, `IsScissorDebug`, `DrawScissorDebug` for visualizing active scissor regions.
+- **Overlay Layer Threshold**: Input layers with `zOrder >= 100` bypass layout scissor (menus, tooltips, dialogs render above clipped content).
+- **Emscripten**: Automatic `GRAPHICS_API_OPENGL_ES3` for WebAssembly builds.
+- **Layout**: Scroll containers and `GetActiveScissorBounds` now use the shared scissor stack.
+
 ### v1.4.0 - Stable Layout IDs
 - **Layout Flicker Fix**: Eliminated UI flicker when layout structure changes (adding/removing elements, switching tabs) by implementing stable hash-based node IDs instead of sequential numbering.
 - **Stable Node IDs**: Layout node IDs now use FNV-1a hashing based on tree hierarchy rather than sequential order. IDs remain stable when siblings are added/removed.
@@ -407,6 +420,19 @@ raym3 is an independent, self-contained project. All resources (icons and fonts)
 
 ### v1.1.0
 - **Removed Native Text Input**: The `useNativeInput` option in `TextFieldOptions` has been removed along with the `RAYM3_ENABLE_NATIVE_TEXT_INPUT` CMake option. The TextField component now provides full native-like text editing behavior (keyboard shortcuts, word/line navigation, selection, undo/redo) without requiring platform-specific backends. This simplifies cross-platform deployment and removes the Cocoa framework dependency on macOS.
+
+## Scissor API
+
+raym3 provides a stack-based scissor (clipping) API for custom clipping regions:
+
+- **`PushScissor(Rectangle bounds)`** - Push a clipping region; intersects with current scissor
+- **`PopScissor()`** - Pop the current scissor and restore the previous one
+- **`BeginScissor(Rectangle bounds)`** - Convenience for `PushScissor(bounds)`
+- **`GetCurrentScissorBounds()`** - Get the current active scissor rectangle
+- **`SetScissorDebug(bool enabled)`** / **`IsScissorDebug()`** - Enable scissor debug overlay
+- **`DrawScissorDebug()`** - Draw green outlines of active scissor regions (call after your frame content)
+
+The layout system and scroll containers use this API internally. Use layers with `zOrder >= 100` for overlays (menus, tooltips, dialogs) so they render above layout clipping.
 
 ## Debugging
 

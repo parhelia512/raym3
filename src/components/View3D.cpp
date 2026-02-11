@@ -1,6 +1,7 @@
 #include "raym3/components/View3D.h"
 #include "raym3/components/TabBar.h"
 #include "raym3/layout/Layout.h"
+#include "raym3/raym3.h"
 #include <algorithm>
 #include <raylib.h>
 #include <rlgl.h>
@@ -241,16 +242,8 @@ int View3D::Render(Rectangle bounds, std::function<void()> renderCallback,
   EnsureTextureSize(width, height);
 
   // 1. Render scene to texture
-  // IMPORTANT: We must disable any active scissor (from UI layout) because
-  // it uses Screen Coordinates, which don't map correctly to FBO Coordinates.
-  // Save TabContent scissor state before ending it
-  Rectangle savedTabScissor = GetTabContentScissorBounds();
-  bool hadTabScissor = (savedTabScissor.width != (float)GetScreenWidth() || 
-                        savedTabScissor.height != (float)GetScreenHeight());
-  
-  // Flush any pending draw commands before switching to FBO
-  // This ensures all UI drawn so far is committed to the screen framebuffer,
-  // preventing flickering on WebGL where EndTextureMode() resets to framebuffer 0.
+  // Suspend GPU scissor for FBO (screen coords don't apply) but keep stack intact
+  // so sibling panels (Inspector) still get correct parent clip on PushScissor
   rlDrawRenderBatchActive();
   EndScissorMode();
 
@@ -305,17 +298,13 @@ int View3D::Render(Rectangle bounds, std::function<void()> renderCallback,
   float right = std::min(bounds.x + bounds.width, parentScissor.x + parentScissor.width);
   float bottom = std::min(bounds.y + bounds.height, parentScissor.y + parentScissor.height);
   
-  float scaleX = (float)GetRenderWidth() / (float)GetScreenWidth();
-  float scaleY = (float)GetRenderHeight() / (float)GetScreenHeight();
-  
   bool hasValidScissor = (right > left && bottom > top);
   if (!hasValidScissor) {
     layerId_ = -1;
     return -1;
   }
 
-  BeginScissorMode((int)(left * scaleX), (int)(top * scaleY), 
-                  (int)((right - left) * scaleX), (int)((bottom - top) * scaleY));
+  BeginScissor({left, top, right - left, bottom - top});
   
   // Apply rounded corner shader if loaded
   if (shaderLoaded_ && shader_.id != rlGetShaderIdDefault()) {
@@ -335,16 +324,8 @@ int View3D::Render(Rectangle bounds, std::function<void()> renderCallback,
   if (shaderLoaded_ && shader_.id != rlGetShaderIdDefault()) {
     EndShaderMode();
   }
-  
-  EndScissorMode();
-  
-  // Restore TabContent scissor if it was active before we disabled it
-  if (hadTabScissor) {
-    float scaleX = (float)GetRenderWidth() / (float)GetScreenWidth();
-    float scaleY = (float)GetRenderHeight() / (float)GetScreenHeight();
-    BeginScissorMode((int)(savedTabScissor.x * scaleX), (int)(savedTabScissor.y * scaleY),
-                     (int)(savedTabScissor.width * scaleX), (int)(savedTabScissor.height * scaleY));
-  }
+
+  PopScissor();
 
   return layerId_;
 }

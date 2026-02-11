@@ -6,10 +6,11 @@ This directory contains documentation for advanced raym3 features and systems.
 
 - **[Layout System](layout-system.md)** - Flexbox-based layout with Yoga
 - **[Input Layer System](input-layer-system.md)** - Z-ordering and input blocking
+- **[Scissor System](scissor-system.md)** - Stack-based clipping regions
 
-## Combining Both Systems
+## Combining Layout, Input Layers, and Scissor
 
-You can combine both systems for complex UIs:
+You can combine all three systems for complex UIs. Layout provides structure, scissor handles scroll clipping, and input layers manage overlay input. Use `PushLayer(100)` or higher for modals so they render above layout clipping:
 
 ```cpp
 raym3::BeginFrame();
@@ -42,8 +43,8 @@ raym3::Layout::EndContainer();
 raym3::Layout::EndContainer();
 raym3::Layout::End();
 
-// Modal overlay with input layers
-raym3::PushLayer(1);
+// Modal overlay - zOrder >= 100 bypasses scissor
+raym3::PushLayer(100);
 raym3::Card({200, 200, 400, 300}, raym3::CardVariant::Elevated);
 // Modal content
 raym3::PopLayer();
@@ -51,5 +52,5 @@ raym3::PopLayer();
 raym3::EndFrame();
 ```
 
-This combination allows you to create responsive layouts with proper input handling for overlays and modals.
+This combination allows you to create responsive layouts with proper input handling and clipping for overlays and modals.
 

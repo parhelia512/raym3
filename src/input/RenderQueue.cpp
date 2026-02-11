@@ -3,6 +3,7 @@
 #if RAYM3_USE_INPUT_LAYERS
 
 #include "raym3/layout/Layout.h"
+#include "raym3/raym3.h"
 #include <algorithm>
 
 namespace raym3 {
@@ -61,22 +62,25 @@ Rectangle RenderQueue::RegisterComponent(
     int layerId,
     bool consumesInput) {
   
-  // Allocate space in the layout system
-  // This returns bounds from the PREVIOUS frame
   Rectangle bounds = Layout::Alloc(Layout::Flex(0));
-  
-  // Capture everything needed for rendering
+  Rectangle clipRect = GetCurrentScissorBounds();
+
   RenderCommand cmd;
   cmd.type = type;
   cmd.bounds = bounds;
+  cmd.clipRect = clipRect;
   cmd.layerId = (layerId == 0) ? currentLayerId_ : layerId;
   cmd.zOrder = cmd.layerId;
   cmd.consumesInput = consumesInput;
   cmd.registrationOrder = registrationCounter_++;
-  cmd.renderFunc = [renderFunc, bounds]() {
+  cmd.renderFunc = [renderFunc, bounds, clipRect]() {
+    if (clipRect.width > 0 && clipRect.height > 0)
+      PushScissor(clipRect);
     renderFunc(bounds);
+    if (clipRect.width > 0 && clipRect.height > 0)
+      PopScissor();
   };
-  
+
   renderQueue_.push_back(cmd);
   
   return bounds;
@@ -151,7 +155,6 @@ void RenderQueue::ExecuteRenderQueue() {
       return a.registrationOrder < b.registrationOrder;
     });
   
-  // Execute render commands in order
   for (auto& cmd : renderQueue_) {
     cmd.renderFunc();
   }

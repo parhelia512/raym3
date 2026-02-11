@@ -21,6 +21,9 @@
 #include "raym3/components/SegmentedButton.h"
 #include "raym3/components/Text.h"
 #include "raym3/rendering/SvgRenderer.h"
+#include <algorithm>
+#include <cmath>
+#include <vector>
 
 #if RAYM3_USE_INPUT_LAYERS
 #include "raym3/input/InputLayer.h"
@@ -30,8 +33,75 @@
 namespace raym3 {
 
 static int s_requestedCursor = MOUSE_CURSOR_DEFAULT;
-
 static bool initialized = false;
+static std::vector<Rectangle> s_scissorStack;
+static bool s_scissorDebugEnabled = false;
+static std::vector<Rectangle> s_scissorDebugRects;
+
+static Rectangle IntersectAndClampScissor(Rectangle requested, Rectangle current) {
+  float left = std::max(requested.x, current.x);
+  float top = std::max(requested.y, current.y);
+  float right = std::min(requested.x + requested.width, current.x + current.width);
+  float bottom = std::min(requested.y + requested.height, current.y + current.height);
+  if (right <= left || bottom <= top)
+    return {0, 0, 0, 0};
+  int renderW = std::max(1, GetScreenWidth());
+  int renderH = std::max(1, GetScreenHeight());
+  int x = (int)std::floor(left);
+  int y = (int)std::floor(top);
+  int w = (int)std::ceil(right - left);
+  int h = (int)std::ceil(bottom - top);
+  if (x < 0) { w += x; x = 0; }
+  if (y < 0) { h += y; y = 0; }
+  if (x + w > renderW) w = renderW - x;
+  if (y + h > renderH) h = renderH - y;
+  if (w < 1) w = 1;
+  if (h < 1) h = 1;
+  return {(float)x, (float)y, (float)w, (float)h};
+}
+
+void PushScissor(Rectangle bounds) {
+  int renderW = std::max(1, GetScreenWidth());
+  int renderH = std::max(1, GetScreenHeight());
+  Rectangle current = s_scissorStack.empty()
+    ? Rectangle{0, 0, (float)renderW, (float)renderH}
+    : s_scissorStack.back();
+  Rectangle applied = IntersectAndClampScissor(bounds, current);
+  if (applied.width < 1 || applied.height < 1)
+    return;
+  s_scissorStack.push_back(applied);
+  BeginScissorMode((int)applied.x, (int)applied.y, (int)applied.width, (int)applied.height);
+  if (s_scissorDebugEnabled)
+    s_scissorDebugRects.push_back(applied);
+}
+
+void PopScissor() {
+  if (s_scissorStack.empty())
+    return;
+  s_scissorStack.pop_back();
+  if (s_scissorStack.empty()) {
+    EndScissorMode();
+    return;
+  }
+  Rectangle prev = s_scissorStack.back();
+  BeginScissorMode((int)prev.x, (int)prev.y, (int)prev.width, (int)prev.height);
+}
+
+Rectangle GetCurrentScissorBounds() {
+  if (s_scissorStack.empty()) {
+    int w = std::max(1, GetScreenWidth());
+    int h = std::max(1, GetScreenHeight());
+    return {0, 0, (float)w, (float)h};
+  }
+  return s_scissorStack.back();
+}
+
+void SetScissorDebug(bool enabled) { s_scissorDebugEnabled = enabled; }
+bool IsScissorDebug() { return s_scissorDebugEnabled; }
+
+void BeginScissor(Rectangle bounds) {
+  PushScissor(bounds);
+}
 static bool darkMode = false;
 
 void Initialize() {
@@ -66,6 +136,7 @@ void BeginFrame() {
   if (!initialized)
     Initialize();
   s_requestedCursor = MOUSE_CURSOR_DEFAULT;
+  s_scissorDebugRects.clear();
   TextFieldComponent::ResetFieldId();
   SliderComponent::ResetFieldId();
   RangeSliderComponent::ResetFieldId();
@@ -76,10 +147,23 @@ void BeginFrame() {
 #endif
 }
 
+void DrawScissorDebug() {
+  if (!s_scissorDebugEnabled || s_scissorDebugRects.empty())
+    return;
+  while (!s_scissorStack.empty()) {
+    s_scissorStack.pop_back();
+  }
+  EndScissorMode();
+  for (const Rectangle& r : s_scissorDebugRects) {
+    DrawRectangleRec(r, (Color){0, 255, 0, 35});
+    DrawRectangleLinesEx(r, 2.0f, (Color){0, 255, 0, 180});
+  }
+  s_scissorDebugRects.clear();
+}
+
 void EndFrame() {
   SetMouseCursor(s_requestedCursor);
 
-  // Render any pending tooltips (deferred to ensure they're on top)
   TooltipManager::Update();
 
 #if RAYM3_USE_INPUT_LAYERS
@@ -89,13 +173,13 @@ void EndFrame() {
 }
 
 #if RAYM3_USE_INPUT_LAYERS
+static constexpr int OVERLAY_LAYER_THRESHOLD = 100;
+
 void PushLayer(int zOrder) {
   InputLayerManager::PushLayer(zOrder);
   RenderQueue::PushLayer(zOrder);
-  
-  // If we are pushing a layer above the base (layout) layer, we likely want to bypass
-  // the layout's clipping (scissor) region. E.g. for Menus, Tooltips, Dialogs.
-  if (zOrder > 0) {
+
+  if (zOrder >= OVERLAY_LAYER_THRESHOLD) {
     EndScissorMode();
   }
 }
@@ -109,19 +193,9 @@ void PopLayer() {
   // Note: This logic assumes we mostly use Layers for Overlays on top of Layouts.
   // If Layouts are nested in Layers, this might need refinement.
   
-  // Only restore if we are back to a state where Layout clipping should apply.
-  // For simplicity, we restore whatever Layout thinks is active.
-  if (InputLayerManager::GetCurrentLayerId() <= 0) {
-    Rectangle s = Layout::GetActiveScissorBounds();
-    if (s.width > 0 && s.height > 0) {
-        // Apply DPI Scaling (HighDPI support)
-        // Match logic in Layout.cpp
-        float scaleX = (float)GetRenderWidth() / (float)GetScreenWidth();
-        float scaleY = (float)GetRenderHeight() / (float)GetScreenHeight();
-
-        BeginScissorMode((int)(s.x * scaleX), (int)(s.y * scaleY), 
-                         (int)(s.width * scaleX), (int)(s.height * scaleY)); 
-    }
+  if (InputLayerManager::GetCurrentLayerId() <= 0 && !s_scissorStack.empty()) {
+    Rectangle s = s_scissorStack.back();
+    BeginScissorMode((int)s.x, (int)s.y, (int)s.width, (int)s.height);
   }
 }
 #endif

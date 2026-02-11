@@ -2,9 +2,11 @@
 #include "raym3/components/Dialog.h"
 #include "raym3/components/Icon.h"
 #include "raym3/layout/Layout.h"
+#include "raym3/raym3.h"
 #include "raym3/rendering/Renderer.h"
 #include "raym3/styles/Theme.h"
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <cstring>
 #include <map>
@@ -603,13 +605,25 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
 
   float currentScroll = fieldState.scrollOffset;
 
-  // Expand scissor by 1px on left to ensure cursor at position 0 is visible
-  int scissorWidth = (int)availableWidth + 1;
-  int scissorHeight = (int)inputBounds.height;
+  int scissorWidth = (int)std::ceil(textEndX - textStartX);
+  int scissorHeight = (int)std::ceil(inputBounds.height);
   bool scissorActive = false;
   if (scissorWidth > 0 && scissorHeight > 0) {
-    BeginScissorMode((int)textStartX - 1, (int)inputBounds.y, scissorWidth, scissorHeight);
-    scissorActive = true;
+    int scissorX = (int)std::floor(textStartX);
+    int scissorY = (int)std::floor(inputBounds.y);
+    int screenW = GetScreenWidth();
+    int screenH = GetScreenHeight();
+    if (scissorX < 0) { scissorWidth += scissorX; scissorX = 0; }
+    if (scissorY < 0) { scissorHeight += scissorY; scissorY = 0; }
+    if (scissorX + scissorWidth > screenW) scissorWidth = screenW - scissorX;
+    if (scissorY + scissorHeight > screenH) scissorHeight = screenH - scissorY;
+    if (scissorWidth < 1) scissorWidth = 1;
+    if (scissorHeight < 1) scissorHeight = 1;
+    if (scissorWidth > 0 && scissorHeight > 0) {
+      BeginScissor(
+          {(float)scissorX, (float)scissorY, (float)scissorWidth, (float)scissorHeight});
+      scissorActive = true;
+    }
   }
 
   bool isEmpty = !buffer || strlen(buffer) == 0;
@@ -1144,7 +1158,7 @@ bool TextFieldComponent::Render(char *buffer, int bufferSize, Rectangle bounds,
   }
 
   if (scissorActive) {
-    EndScissorMode();
+    PopScissor();
   }
 
   if (options.leadingIcon) {

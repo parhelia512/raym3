@@ -1,6 +1,7 @@
 #include "raym3/components/Tooltip.h"
 #include "raym3/components/Button.h"
 #include "raym3/rendering/Renderer.h"
+#include "raym3/raym3.h"
 #include "raym3/styles/Theme.h"
 #include <algorithm>
 #include <cstring>

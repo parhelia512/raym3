@@ -1,6 +1,7 @@
 #include "raym3/components/Modal.h"
 #include "raym3/components/Button.h"
 #include "raym3/components/Card.h"
+#include "raym3/raym3.h"
 #include "raym3/components/Text.h"
 #include "raym3/components/TextField.h"
 #include "raym3/components/Tooltip.h"

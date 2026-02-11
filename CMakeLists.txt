@@ -108,6 +108,10 @@ else()
     target_compile_definitions(raym3 PUBLIC RAYM3_USE_YOGA=0)
 endif()
 
+if(EMSCRIPTEN)
+    target_compile_definitions(raym3 PUBLIC GRAPHICS_API_OPENGL_ES3)
+endif()
+
 if(RAYM3_USE_INPUT_LAYERS)
     target_compile_definitions(raym3 PUBLIC RAYM3_USE_INPUT_LAYERS=1)
     message(STATUS "Input layers support enabled")
